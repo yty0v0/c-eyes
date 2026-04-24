@@ -24,6 +24,18 @@ Linux 操作系统：建议以 root 用户身份运行 C-Eyes 工具。
 ./c-eyes -h       #如果显示帮助信息说明安装成功
 ```
 
+## 云平台配置说明
+
+`c-eyes` 的风险分析支持联网云平台分析，当前支持以下平台：
+- `virustotal`
+- `hybrid_analysis`
+- `malwarebazaar`
+- `otx`
+- `triage`
+
+在可执行文件同目录放置 `c-eyes-cloud.json` 文件，直接打开配置api-key即可
+
+
 ## 主要操作说明
 ### 资产与信息采集
 主机基本信息获取: `c-eyes hostscan --all`
