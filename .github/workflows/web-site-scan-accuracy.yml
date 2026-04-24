@@ -1,0 +1,41 @@
+name: web-site-scan-accuracy
+
+on:
+  push:
+    paths:
+      - "internal/websitescan/**"
+      - "cmd/edr/web_site_scan.go"
+      - "cmd/edr/excel_web_site_scan.go"
+      - "cmd/edr/web_site_scan_flags_test.go"
+      - "cmd/edr/excel_web_site_scan_test.go"
+      - ".github/workflows/web-site-scan-accuracy.yml"
+  pull_request:
+    paths:
+      - "internal/websitescan/**"
+      - "cmd/edr/web_site_scan.go"
+      - "cmd/edr/excel_web_site_scan.go"
+      - "cmd/edr/web_site_scan_flags_test.go"
+      - "cmd/edr/excel_web_site_scan_test.go"
+      - ".github/workflows/web-site-scan-accuracy.yml"
+
+jobs:
+  accuracy:
+    name: accuracy-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test websitescan package
+        run: go test ./internal/websitescan -count=1
+
+      - name: Test CLI web-site flags and excel
+        run: go test ./cmd/edr -run WebSite -count=1
+

@@ -1,0 +1,176 @@
+[
+  {
+    "displayIp": null,
+    "externalIpList": [],
+    "internalIpList": [],
+    "bizGroupId": null,
+    "bizGroup": null,
+    "remark": null,
+    "hostTagList": [],
+    "hostname": null,
+    "pid": null,
+    "allow": null,
+    "deny": "all",
+    "cmd": null,
+    "domains": [
+      {
+        "name": "app.example.com",
+        "title": null,
+        "ip": null
+      }
+    ],
+    "user": null,
+    "type": "nginx",
+    "port": 443,
+    "proto": "https",
+    "portStatus": -1,
+    "securityEnabled": true,
+    "virtualDir": [
+      {
+        "path": "/",
+        "physicalPath": "/srv/www/app",
+        "root": true,
+        "owner": null,
+        "group": null,
+        "permission": null,
+        "acls": [],
+        "appPath": null,
+        "appPool": null
+      }
+    ],
+    "root": {
+      "path": "/",
+      "physicalPath": "/srv/www/app",
+      "root": true,
+      "owner": null,
+      "group": null,
+      "permission": null,
+      "acls": [],
+      "appPath": null,
+      "appPool": null
+    },
+    "virtualDirCount": 1,
+    "bindingCount": 1,
+    "deployPath": null,
+    "configName": "nginx.conf",
+    "state": null,
+    "path": "/srv/www/app",
+    "isRunning": false
+  },
+  {
+    "displayIp": null,
+    "externalIpList": [],
+    "internalIpList": [],
+    "bizGroupId": null,
+    "bizGroup": null,
+    "remark": null,
+    "hostTagList": [],
+    "hostname": null,
+    "pid": null,
+    "allow": null,
+    "deny": null,
+    "cmd": null,
+    "domains": [
+      {
+        "name": "intranet.example.com",
+        "title": null,
+        "ip": null
+      }
+    ],
+    "user": null,
+    "type": "apache",
+    "port": 8080,
+    "proto": "http",
+    "portStatus": -1,
+    "securityEnabled": false,
+    "virtualDir": [
+      {
+        "path": "/",
+        "physicalPath": "/var/www/intranet",
+        "root": true,
+        "owner": null,
+        "group": null,
+        "permission": null,
+        "acls": [],
+        "appPath": null,
+        "appPool": null
+      }
+    ],
+    "root": {
+      "path": "/",
+      "physicalPath": "/var/www/intranet",
+      "root": true,
+      "owner": null,
+      "group": null,
+      "permission": null,
+      "acls": [],
+      "appPath": null,
+      "appPool": null
+    },
+    "virtualDirCount": 1,
+    "bindingCount": 1,
+    "deployPath": null,
+    "configName": "httpd.conf",
+    "state": null,
+    "path": "/var/www/intranet",
+    "isRunning": false
+  },
+  {
+    "displayIp": null,
+    "externalIpList": [],
+    "internalIpList": [],
+    "bizGroupId": null,
+    "bizGroup": null,
+    "remark": null,
+    "hostTagList": [],
+    "hostname": null,
+    "pid": null,
+    "allow": null,
+    "deny": null,
+    "cmd": null,
+    "domains": [
+      {
+        "name": "tomcat.example.com",
+        "title": null,
+        "ip": null
+      }
+    ],
+    "user": null,
+    "type": "tomcat",
+    "port": 8443,
+    "proto": "https",
+    "portStatus": -1,
+    "securityEnabled": false,
+    "virtualDir": [
+      {
+        "path": "/",
+        "physicalPath": "/opt/tomcat/webapps",
+        "root": true,
+        "owner": null,
+        "group": null,
+        "permission": null,
+        "acls": [],
+        "appPath": null,
+        "appPool": null
+      }
+    ],
+    "root": {
+      "path": "/",
+      "physicalPath": "/opt/tomcat/webapps",
+      "root": true,
+      "owner": null,
+      "group": null,
+      "permission": null,
+      "acls": [],
+      "appPath": null,
+      "appPool": null
+    },
+    "virtualDirCount": 1,
+    "bindingCount": 1,
+    "deployPath": "/opt/tomcat",
+    "configName": "server.xml",
+    "state": null,
+    "path": "/opt/tomcat/webapps",
+    "isRunning": false
+  }
+]

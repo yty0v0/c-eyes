@@ -1,0 +1,1 @@
+<Server><Service><Connector port="8443" protocol="HTTP/1.1" SSLEnabled="true" secure="true" scheme="https"/><Host name="tomcat.example.com" appBase="/opt/tomcat/webapps"/></Service></Server>

@@ -1,0 +1,20 @@
+# Local cloud credential files (never commit secrets)
+c-eyes-cloud.json
+.c-eyes/
+*.local.json
+
+# Build outputs
+dist-*/
+cmd/edr/result*.xlsx
+cmd/edr/result*.json
+cmd/edr/result*.csv
+
+# Temp and editor artifacts
+.tmp/
+tmp/
+*.tmp
+*.bak
+*.swp
+*.swo
+*.orig
+

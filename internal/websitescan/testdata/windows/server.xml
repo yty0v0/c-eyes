@@ -1,0 +1,1 @@
+<Server><Service><Connector port="8080" protocol="HTTP/1.1"/><Host name="tomcat.win.local" appBase="E:/tomcat/webapps"/></Service></Server>

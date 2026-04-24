@@ -1,0 +1,5 @@
+Defaults    env_reset
+root ALL=(ALL:ALL) ALL
+alice ALL=(ALL) NOPASSWD: /usr/bin/systemctl
+%sudo ALL=(ALL:ALL) ALL
+Cmnd_Alias TEST=/bin/ls

@@ -1,0 +1,6 @@
+# system groups
+root:x:0:
+developers:x:1000:alice,bob,alice,, bob
+admins:x:1001:carol
+invalid
+badgid:x:notanumber:dave
