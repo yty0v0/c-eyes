@@ -1,6 +1,7 @@
 package websitescan
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -29,7 +30,16 @@ func assertGoldenJSON(t *testing.T, goldenPath string, value any) {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", goldenPath, err)
 	}
-	if string(expected) != string(data) {
+	expected = normalizeLineEndings(expected)
+	data = normalizeLineEndings(data)
+	if !bytes.Equal(expected, data) {
 		t.Fatalf("golden mismatch: %s\nset UPDATE_GOLDEN=1 to refresh", goldenPath)
 	}
+}
+
+func normalizeLineEndings(b []byte) []byte {
+	// Keep golden checks stable across Windows (CRLF) and Unix (LF) checkouts.
+	b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
+	b = bytes.ReplaceAll(b, []byte("\r"), []byte("\n"))
+	return b
 }
