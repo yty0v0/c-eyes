@@ -91,11 +91,10 @@ rule GandCrab5
     condition:
         all of ($s*) and ($t1 or $t2)
 }
-
-rule Gandcrab_hash
-{
-   meta:
-        description ="Detect the risk of GandCrab Rule 5"
-   condition:
-    hash.sha256(0,filesize) =="eb9207371e53414cfcb2094a2e34bd68be1a9eedbe49c4ded82b2adb8fa1d23d"
+rule GandCrab_hash{
+meta: 
+    description= "Detect the risk of GandCrab Rule 1"
+  condition:
+   hash.sha256(0,filesize) =="49b769536224f160b6087dc866edf6445531c6136ab76b9d5079ce622b043200" or
+    hash.sha256(0,filesize) =="a45bd4059d804b586397f43ee95232378d519c6b8978d334e07f6047435fe926"
 }
