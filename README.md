@@ -220,16 +220,25 @@ Web文件信息异常分析: c-eyes filescan --all -r
 M-SEC 社区 ：https://msec.nsfocus.com
 
 ## 附录：目前支持的检测规则
-目前支持的恶意样本检测种类如下：
+目前支持的恶意样本检测重点覆盖勒索、挖矿、僵尸网络、Webshell、C2/后门及银狐等方向，适用于hvv场景。
 
-### 勒索：
-Babuk、BadEncript、BadRabbit、BCrypt、BlackMatter、Cerber、Chaos、ChupaCabra、Common、Conti、Cryakl、CryptoLocker、cryt0y、DarkSide、Fonix、GandCrab、Globeimposter、Henry217、HiddenTear、LockBit、Locky、Magniber、Makop、MBRLocker、MedusaLocker、Nemty、NoCry、Petya、Phobos、Povlsomware、QNAPCrypt、Sarbloh、Satana、ScreenLocker、Sodinokibi、Stop、Termite、TeslaCrypt、Thanos、Tohnichi、TrumpLocker、Venus、VoidCrypt、Wannacrypt、WannaDie、WannaRen、Zeppelin
+勒索：
+Babuk、BadEncript、BadRabbit、BCrypt、BlackMatter、Cerber、Chaos、ChupaCabra、Common、Conti、Cryakl、CryptoLocker、cryt0y、DarkSide、Fonix、GandCrab、Globeimposter、Henry217、HiddenTear、House、LockBit、Locky、Magniber、Makop、MBRLocker、MedusaLocker、Nemty、NoCry、Petya、Phobos、Povlsomware、QNAPCrypt、Sarbloh、Satana、ScreenLocker、Sodinokibi、Stop、Termite、TeslaCrypt、Thanos、Tohnichi、TrumpLocker、Venus、VoidCrypt、Wannacrypt、WannaDie、WannaRen、Zeppelin。
 
-### 挖矿：
-Wannamine、ELFcoinminer、givemexyz 家族、Monero、TrojanCoinMiner
+挖矿：
+Wannamine、ELFcoinminer、givemexyz 家族、Monero、TrojanCoinMiner。
 
-### 僵尸网络：
-BlackMoon、Festi、Gafgyt、Kelihos、Mykings
+僵尸网络：
+BlackMoon、Festi、Gafgyt、Kelihos、Mykings。
 
-### Webshell及蓝军武器：
-支持中国菜刀、Cknife、Weevely、蚁剑 antSword、冰蝎 Behinder、哥斯拉 Godzilla 等常见工具的 webshell 脚本的检测。
+Webshell 及蓝军武器：
+支持中国菜刀、Cknife、Weevely、蚁剑 antSword、冰蝎 Behinder、哥斯拉 Godzilla 等常见工具的 webshell 脚本检测，同时覆盖 ChinaChopper、ASPXSpy、Laudanum、WebShellTerminal、WebShellsMicro、CobaltWebshell、BurrowShell 等常见变种与落地样本特征。
+
+银狐（SilverFox）：
+已内置银狐专项检测规则（SilverFox.yara），用于识别 SilverFox 家族典型样本特征；同时在部分加载器/工具链相关规则中包含银狐关联特征，用于提升银狐攻击链检出能力。
+
+C2 远控与后门：
+覆盖 Cobalt Strike（Beacon/Loader/Packer/Shellcode 等）、Empire/PowEmpire、Metasploit、Meterpreter、Sliver、Viper、DonutLoader、FossilBeacon、APT_Cobalt、Agent 等攻防常见工具链。
+
+其他恶意工具补充：
+Malicious.tools、Malware.FiveSys、Malware.Mikey、Malware.Rekoobe。
