@@ -13,6 +13,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -31,11 +33,32 @@ type YaraXEngine interface {
 type YaraXMatcher struct {
 	Engine          YaraXEngine
 	CurrentHostname string
+	CurrentPID      int
+	CurrentExePath  string
+}
+
+// ConcurrentSafe indicates YaraXMatcher can be used by parallel analyzer workers.
+func (m *YaraXMatcher) ConcurrentSafe() bool {
+	return true
 }
 
 func (m *YaraXMatcher) Match(ctx context.Context, target TargetMetadata, record ScanRecord) (LocalAnalysis, float64, error) {
 	if m == nil || m.Engine == nil {
 		return LocalAnalysis{}, 0, fmt.Errorf("yara-x engine is not configured")
+	}
+	if m.isSelfExecutablePathTarget(target) {
+		return LocalAnalysis{
+			LocalMatched:        false,
+			LocalFallback:       true,
+			LocalFallbackReason: "skipped local matching for current c-eyes executable",
+		}, 0, nil
+	}
+	if m.isSelfProcessTarget(target) {
+		return LocalAnalysis{
+			LocalMatched:        false,
+			LocalFallback:       true,
+			LocalFallbackReason: "skipped local matching for current c-eyes process",
+		}, 0, nil
 	}
 	if strings.EqualFold(strings.TrimSpace(target.TargetType), TargetTypeProcessMemory) {
 		return m.matchProcessMemory(ctx, record)
@@ -188,6 +211,78 @@ func (m *YaraXMatcher) currentHostname() string {
 		return ""
 	}
 	return strings.TrimSpace(host)
+}
+
+func (m *YaraXMatcher) currentPID() int {
+	if m != nil && m.CurrentPID > 0 {
+		return m.CurrentPID
+	}
+	return os.Getpid()
+}
+
+func (m *YaraXMatcher) currentExePath() string {
+	if m != nil {
+		if path := strings.TrimSpace(m.CurrentExePath); path != "" {
+			return normalizeComparablePath(path)
+		}
+	}
+	path, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return normalizeComparablePath(path)
+}
+
+func (m *YaraXMatcher) isSelfProcessTarget(target TargetMetadata) bool {
+	targetType := strings.ToLower(strings.TrimSpace(target.TargetType))
+	if targetType != strings.ToLower(TargetTypeProcess) && targetType != strings.ToLower(TargetTypeProcessMemory) {
+		return false
+	}
+	if target.PID != nil && m.currentPID() > 0 && *target.PID == m.currentPID() {
+		return true
+	}
+	return m.isSelfExecutablePathTarget(target)
+}
+
+func (m *YaraXMatcher) isSelfExecutablePathTarget(target TargetMetadata) bool {
+	if strings.TrimSpace(target.TargetPath) == "" {
+		return false
+	}
+	selfPath := m.currentExePath()
+	if selfPath == "" {
+		return false
+	}
+	return pathsEquivalent(target.TargetPath, selfPath)
+}
+
+func pathsEquivalent(a, b string) bool {
+	na := normalizeComparablePath(a)
+	nb := normalizeComparablePath(b)
+	if na == "" || nb == "" {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(na, nb)
+	}
+	return na == nb
+}
+
+func normalizeComparablePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && strings.TrimSpace(resolved) != "" {
+		path = resolved
+	}
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+	}
+	return path
 }
 
 func hostnamesEquivalent(a, b string) bool {

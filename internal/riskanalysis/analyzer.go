@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/metrics"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,6 +34,7 @@ const (
 	stageFastFallbackYara = "fast_fallback_yara"
 	stageSmartFallback    = "smart_fallback_yara"
 	stageDeepFallback     = "deep_fallback_memory"
+	stageAnalyzeParallel  = "parallel_analyze"
 	stageUploadFinalGate  = "upload_final_gate"
 	stageUploadWaiting    = "upload_waiting_result"
 	stageHighRiskShort    = "high_risk_short_circuit"
@@ -79,6 +81,7 @@ type Analyzer struct {
 	CloudUploadPollInterval  time.Duration
 	CloudUploadMaxSize       int64
 	AnalysisMaxDuration      time.Duration
+	AnalysisConcurrency      int
 	OnDiagnostic             func(string)
 
 	OnProgress func(ProgressEvent)
@@ -128,6 +131,12 @@ func (a *Analyzer) Analyze(ctx context.Context, records []ScanRecord, mode Analy
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, effectiveMaxDuration)
 		defer cancel()
+	}
+
+	analysisWorkers := a.analysisConcurrency(mode, len(records))
+	if a.canAnalyzeInParallel(mode, len(records), analysisWorkers) {
+		results := a.analyzeParallelNoUpload(ctx, records, mode, nowFn, analysisWorkers)
+		return results, nil
 	}
 
 	results := make([]AnalysisResult, 0, len(records))
@@ -304,6 +313,283 @@ func (a *Analyzer) Analyze(ctx context.Context, records []ScanRecord, mode Analy
 	return results, nil
 }
 
+type localMatcherConcurrencyHint interface {
+	ConcurrentSafe() bool
+}
+
+type lockedLocalMatcher struct {
+	inner LocalMatcher
+	mu    *sync.Mutex
+}
+
+func (m *lockedLocalMatcher) Match(ctx context.Context, target TargetMetadata, record ScanRecord) (LocalAnalysis, float64, error) {
+	if m == nil || m.inner == nil {
+		return LocalAnalysis{LocalMatched: false}, 0, nil
+	}
+	if m.mu != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+	}
+	return m.inner.Match(ctx, target, record)
+}
+
+func isLocalMatcherConcurrentSafe(m LocalMatcher) bool {
+	if m == nil {
+		return true
+	}
+	hint, ok := m.(localMatcherConcurrencyHint)
+	if !ok {
+		return false
+	}
+	return hint.ConcurrentSafe()
+}
+
+func (a *Analyzer) canAnalyzeInParallel(mode AnalysisMode, totalRecords, workers int) bool {
+	if workers <= 1 || totalRecords <= 1 {
+		return false
+	}
+	if a == nil {
+		return false
+	}
+	if a.CloudUploadEnabled {
+		// Upload workflow has adaptive state and waiting progress; keep it sequential.
+		return false
+	}
+	if normalizeMode(mode) == ModeLocalOnly && !isLocalMatcherConcurrentSafe(a.Local) {
+		return false
+	}
+	return true
+}
+
+func (a *Analyzer) analysisConcurrency(mode AnalysisMode, totalRecords int) int {
+	if totalRecords <= 1 {
+		return 1
+	}
+	if a != nil && a.AnalysisConcurrency > 0 {
+		workers := a.AnalysisConcurrency
+		if workers < 1 {
+			workers = 1
+		}
+		if workers > 16 {
+			workers = 16
+		}
+		if workers > totalRecords {
+			workers = totalRecords
+		}
+		return workers
+	}
+
+	procs := runtime.GOMAXPROCS(0)
+	if procs <= 0 {
+		procs = runtime.NumCPU()
+	}
+	if procs <= 0 {
+		procs = 1
+	}
+
+	workers := 1
+	switch normalizeMode(mode) {
+	case ModeCloudOnly:
+		workers = procs
+		if workers < 2 {
+			workers = 2
+		}
+		if workers > 8 {
+			workers = 8
+		}
+	case ModeFast, ModeSmart, ModeDeep:
+		workers = procs / 2
+		if workers < 2 {
+			workers = 2
+		}
+		if workers > 6 {
+			workers = 6
+		}
+	case ModeLocalOnly:
+		workers = procs / 2
+		if workers < 1 {
+			workers = 1
+		}
+		if workers > 4 {
+			workers = 4
+		}
+	default:
+		workers = 1
+	}
+
+	if workers > totalRecords {
+		workers = totalRecords
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	return workers
+}
+
+type parallelRecordOutcome struct {
+	index  int
+	result AnalysisResult
+}
+
+func (a *Analyzer) analyzeParallelNoUpload(ctx context.Context, records []ScanRecord, mode AnalysisMode, nowFn func() time.Time, workers int) []AnalysisResult {
+	total := len(records)
+	results := make([]AnalysisResult, total)
+	if total == 0 {
+		return results
+	}
+	if workers <= 1 {
+		for i := range records {
+			results[i] = a.analyzeNoUploadRecord(ctx, records[i], mode, i+1, total, nowFn)
+			a.emitProgress(i+1, total, results[i].ScanID, stageAnalyzeParallel)
+		}
+		if a.OnResult != nil {
+			for i := range results {
+				a.OnResult(results[i])
+			}
+		}
+		return results
+	}
+
+	lockLocal := !isLocalMatcherConcurrentSafe(a.Local) && a.Local != nil
+	if lockLocal {
+		a.emitDiagnostic("parallel analysis: local matcher is not marked concurrent-safe; local stage is serialized")
+	}
+	a.emitDiagnostic(fmt.Sprintf("parallel analysis enabled: mode=%s workers=%d", mode, workers))
+
+	jobs := make(chan int)
+	outcomes := make(chan parallelRecordOutcome, total)
+	var wg sync.WaitGroup
+	var localMu sync.Mutex
+
+	for workerID := 0; workerID < workers; workerID++ {
+		worker := *a
+		worker.OnProgress = nil
+		worker.OnResult = nil
+		worker.OnDiagnostic = nil
+		worker.CloudUploadEnabled = false
+		if lockLocal {
+			worker.Local = &lockedLocalMatcher{
+				inner: worker.Local,
+				mu:    &localMu,
+			}
+		}
+
+		wg.Add(1)
+		go func(an Analyzer) {
+			defer wg.Done()
+			for index := range jobs {
+				result := an.analyzeNoUploadRecord(ctx, records[index], mode, index+1, total, nowFn)
+				outcomes <- parallelRecordOutcome{
+					index:  index,
+					result: result,
+				}
+			}
+		}(worker)
+	}
+
+	go func() {
+		for i := range records {
+			jobs <- i
+		}
+		close(jobs)
+		wg.Wait()
+		close(outcomes)
+	}()
+
+	completed := 0
+	for outcome := range outcomes {
+		results[outcome.index] = outcome.result
+		completed++
+		a.emitProgress(completed, total, outcome.result.ScanID, stageAnalyzeParallel)
+	}
+
+	if a.OnResult != nil {
+		for i := range results {
+			a.OnResult(results[i])
+		}
+	}
+	return results
+}
+
+func (a *Analyzer) analyzeNoUploadRecord(ctx context.Context, record ScanRecord, mode AnalysisMode, index, total int, nowFn func() time.Time) AnalysisResult {
+	meta := NormalizeTarget(record, nowFn())
+	result := AnalysisResult{
+		ScanID:            meta.ScanID,
+		Timestamp:         meta.Timestamp,
+		TargetType:        meta.TargetType,
+		TargetPath:        meta.TargetPath,
+		PID:               meta.PID,
+		FileSize:          meta.FileSize,
+		Hashes:            meta.Hashes,
+		CloudUploadStatus: CloudUploadStatusSkipped,
+	}
+
+	var (
+		localAnalysis *LocalAnalysis
+		cloudAnalysis *CloudAnalysis
+		whitelist     *WhitelistAnalysis
+		localScore    float64
+		cloudScore    float64
+		stage         string
+	)
+
+	switch mode {
+	case ModeLocalOnly:
+		a.emitProgress(index, total, meta.ScanID, stageLocalOnly)
+		analysis, score, err := a.matchLocal(ctx, meta, record, 0)
+		if err != nil {
+			analysis = LocalAnalysis{
+				LocalMatched:        false,
+				LocalFallback:       true,
+				LocalFallbackReason: err.Error(),
+			}
+			score = 0
+		}
+		localAnalysis = &analysis
+		localScore = score
+		stage = stageLocalOnly
+
+	case ModeCloudOnly:
+		a.emitProgress(index, total, meta.ScanID, stageCloudOnly)
+		analysis, score, _ := a.queryCloud(ctx, meta.Hashes)
+		cloudAnalysis = &analysis
+		cloudScore = score
+		stage = stageCloudOnly
+
+	case ModeFast:
+		localAnalysis, localScore, cloudAnalysis, cloudScore, whitelist, stage = a.executeFast(ctx, meta, record, index, total)
+
+	case ModeSmart:
+		localAnalysis, localScore, cloudAnalysis, cloudScore, whitelist, stage = a.executeSmart(ctx, meta, record, index, total)
+
+	case ModeDeep:
+		localAnalysis, localScore, cloudAnalysis, cloudScore, whitelist, stage = a.executeDeep(ctx, meta, record, index, total)
+	}
+
+	result.LocalAnalysis = localAnalysis
+	result.CloudAnalysis = cloudAnalysis
+	result.Whitelist = whitelist
+
+	stageForScore := stage
+	weighted := 0.0
+	if score, terminal := whitelistTerminalScore(whitelist); terminal {
+		weighted = score
+	} else if score, short := a.highRiskShortCircuit(localAnalysis, localScore, cloudAnalysis, cloudScore); short {
+		weighted = score
+		stageForScore = stageHighRiskShort
+	} else {
+		weighted = a.finalScore(mode, localAnalysis, localScore, cloudAnalysis, cloudScore, whitelist, meta)
+	}
+	riskScore, riskLevel := applyCloudRiskOverrides(weighted, cloudAnalysis)
+	result.RiskAssessment = RiskAssessment{
+		AnalysisMode: mode,
+		RiskScore:    riskScore,
+		RiskLevel:    riskLevel,
+		Stage:        stageForScore,
+	}
+	return result
+}
+
 func (a *Analyzer) executeFast(ctx context.Context, meta TargetMetadata, record ScanRecord, index, total int) (*LocalAnalysis, float64, *CloudAnalysis, float64, *WhitelistAnalysis, string) {
 	whitelist := a.evaluateWhitelist(ctx, meta, record, whitelistStageFast)
 	if whitelist != nil && whitelist.Checked {
@@ -351,6 +637,10 @@ func (a *Analyzer) executeFast(ctx context.Context, meta TargetMetadata, record 
 
 func (a *Analyzer) executeSmart(ctx context.Context, meta TargetMetadata, record ScanRecord, index, total int) (*LocalAnalysis, float64, *CloudAnalysis, float64, *WhitelistAnalysis, string) {
 	whitelist := a.evaluateWhitelist(ctx, meta, record, whitelistStageSmart)
+	return a.executeSmartWithWhitelist(ctx, meta, record, index, total, whitelist)
+}
+
+func (a *Analyzer) executeSmartWithWhitelist(ctx context.Context, meta TargetMetadata, record ScanRecord, index, total int, whitelist *WhitelistAnalysis) (*LocalAnalysis, float64, *CloudAnalysis, float64, *WhitelistAnalysis, string) {
 	if whitelist != nil && whitelist.Checked {
 		a.emitProgress(index, total, meta.ScanID, stageSmartWhitelist)
 		switch whitelist.Decision {
@@ -382,8 +672,17 @@ func (a *Analyzer) executeSmart(ctx context.Context, meta TargetMetadata, record
 		localPtr = &local
 	}
 
-	localScore := smartLocalScore(local)
-	hints := buildHints(meta, localPtr, localScore)
+	localScore := 0.0
+	hints := AnalysisHints{
+		TargetType: meta.TargetType,
+		TargetPath: meta.TargetPath,
+	}
+	if localPtr != nil {
+		localSummary := summarizeLocalMatches(local.YaraResults)
+		matchScore := LocalScoreFromMatches(local.YaraResults)
+		localScore = smartLocalScoreFromSummary(localSummary, matchScore)
+		hints = buildHintsFromSummary(meta, localSummary, localScore, matchScore)
+	}
 	if hints.HighConfidence {
 		return localPtr, localScore, nil, 0, whitelist, stageLocalPreScan
 	}
@@ -415,9 +714,17 @@ func (a *Analyzer) executeDeep(ctx context.Context, meta TargetMetadata, record 
 		}
 	}
 
-	localPtr, localScore, cloudPtr, cloudScore, smartWhitelist, stage := a.executeSmart(ctx, meta, record, index, total)
+	var (
+		localPtr   *LocalAnalysis
+		localScore float64
+		cloudPtr   *CloudAnalysis
+		cloudScore float64
+		stage      string
+	)
 	if whitelist == nil || !whitelist.Checked {
-		whitelist = smartWhitelist
+		localPtr, localScore, cloudPtr, cloudScore, whitelist, stage = a.executeSmart(ctx, meta, record, index, total)
+	} else {
+		localPtr, localScore, cloudPtr, cloudScore, _, stage = a.executeSmartWithWhitelist(ctx, meta, record, index, total, whitelist)
 	}
 	if stage == stageSmartWhitelist || (stage == stageLocalPreScan && cloudPtr == nil) {
 		return localPtr, localScore, cloudPtr, cloudScore, whitelist, stage
@@ -605,6 +912,89 @@ func normalizeMode(mode AnalysisMode) AnalysisMode {
 	}
 }
 
+type localMatchSummary struct {
+	tags                []string
+	ruleNames           []string
+	suspiciousLabels    int
+	hasHighConfidence   bool
+	hasPackerSignals    bool
+	hasAntiDebugSignals bool
+	hasAptSignals       bool
+}
+
+func summarizeLocalMatches(matches []YaraRuleMatch) localMatchSummary {
+	if len(matches) == 0 {
+		return localMatchSummary{}
+	}
+
+	tagSet := make(map[string]struct{}, len(matches)*4)
+	ruleSet := make(map[string]struct{}, len(matches))
+	summary := localMatchSummary{
+		tags:      make([]string, 0, len(matches)*3),
+		ruleNames: make([]string, 0, len(matches)),
+	}
+
+	addTag := func(value string) {
+		if value == "" {
+			return
+		}
+		if _, ok := tagSet[value]; !ok {
+			tagSet[value] = struct{}{}
+			summary.tags = append(summary.tags, value)
+		}
+		if !summary.hasHighConfidence && tagHasAny(value, "high_confidence", "high-confidence", "known_malware", "ransomware", "cobaltstrike", "cobalt_strike") {
+			summary.hasHighConfidence = true
+		}
+		if !summary.hasPackerSignals && tagHasAny(value, "upx", "packed", "packer", "encrypt", "obfus", "obfuscated") {
+			summary.hasPackerSignals = true
+		}
+		if !summary.hasAntiDebugSignals && tagHasAny(value, "anti_debug", "antidebug", "anti-sandbox", "sandbox", "vm", "anti_vm") {
+			summary.hasAntiDebugSignals = true
+		}
+		if !summary.hasAptSignals && tagHasAny(value, "apt", "rat", "c2", "toolkit", "inject", "credential", "t1055", "t1003") {
+			summary.hasAptSignals = true
+		}
+	}
+
+	for _, m := range matches {
+		rule := strings.ToLower(strings.TrimSpace(m.RuleName))
+		if rule != "" {
+			if _, ok := ruleSet[rule]; !ok {
+				ruleSet[rule] = struct{}{}
+				summary.ruleNames = append(summary.ruleNames, rule)
+			}
+			addTag(rule)
+		}
+		for _, tag := range m.Tags {
+			t := strings.ToLower(strings.TrimSpace(tag))
+			if t == "" {
+				continue
+			}
+			addTag(t)
+			if tagHasAny(t, "obfus", "upx", "packed", "macro", "powershell", "apt", "rat", "c2", "inject", "credential", "anti_debug", "anti-sandbox", "sandbox") {
+				summary.suspiciousLabels++
+			}
+		}
+	}
+	return summary
+}
+
+func buildHintsFromSummary(meta TargetMetadata, summary localMatchSummary, localScore, matchScore float64) AnalysisHints {
+	rawScore := localScore
+	if matchScore > rawScore {
+		rawScore = matchScore
+	}
+	return AnalysisHints{
+		TargetType:       meta.TargetType,
+		TargetPath:       meta.TargetPath,
+		LocalTags:        summary.tags,
+		LocalRuleNames:   summary.ruleNames,
+		LocalSuspicious:  localScore >= 50 || summary.suspiciousLabels > 0,
+		HighConfidence:   rawScore >= 90 || summary.hasHighConfidence,
+		SuspiciousLabels: summary.suspiciousLabels,
+	}
+}
+
 func buildHints(meta TargetMetadata, local *LocalAnalysis, localScore float64) AnalysisHints {
 	hints := AnalysisHints{
 		TargetType: meta.TargetType,
@@ -613,70 +1003,42 @@ func buildHints(meta TargetMetadata, local *LocalAnalysis, localScore float64) A
 	if local == nil {
 		return hints
 	}
+	summary := summarizeLocalMatches(local.YaraResults)
+	matchScore := LocalScoreFromMatches(local.YaraResults)
+	return buildHintsFromSummary(meta, summary, localScore, matchScore)
+}
 
-	tagSet := make([]string, 0)
-	ruleNames := make([]string, 0)
-	suspiciousLabels := 0
-	for _, m := range local.YaraResults {
-		rule := strings.ToLower(strings.TrimSpace(m.RuleName))
-		if rule != "" {
-			ruleNames = appendUnique(ruleNames, rule)
-			tagSet = appendUnique(tagSet, rule)
-		}
-		for _, tag := range m.Tags {
-			t := strings.ToLower(strings.TrimSpace(tag))
-			if t == "" {
-				continue
-			}
-			tagSet = appendUnique(tagSet, t)
-			if tagHasAny(t, "obfus", "upx", "packed", "macro", "powershell", "apt", "rat", "c2", "inject", "credential", "anti_debug", "anti-sandbox", "sandbox") {
-				suspiciousLabels++
-			}
-		}
+func smartLocalScoreFromSummary(summary localMatchSummary, matchScore float64) float64 {
+	if matchScore >= 90 || summary.hasHighConfidence {
+		return 40
 	}
 
-	rawScore := localScore
-	if matchScore := LocalScoreFromMatches(local.YaraResults); matchScore > rawScore {
-		rawScore = matchScore
+	score := 0.0
+	if summary.hasPackerSignals {
+		score += 10
 	}
-	highConfidence := rawScore >= 90 || hasTag(tagSet, "high_confidence", "high-confidence", "known_malware", "ransomware", "cobaltstrike", "cobalt_strike")
-	localSuspicious := localScore >= 50 || suspiciousLabels > 0
-
-	hints.LocalTags = tagSet
-	hints.LocalRuleNames = ruleNames
-	hints.LocalSuspicious = localSuspicious
-	hints.HighConfidence = highConfidence
-	hints.SuspiciousLabels = suspiciousLabels
-	return hints
+	if summary.hasAntiDebugSignals {
+		score += 20
+	}
+	if summary.hasAptSignals {
+		score += 30
+	}
+	if score == 0 {
+		score = ClampScore(matchScore * 0.4)
+	}
+	if score > 40 {
+		score = 40
+	}
+	return score
 }
 
 func smartLocalScore(local LocalAnalysis) float64 {
 	if len(local.YaraResults) == 0 {
 		return 0
 	}
-
-	hints := buildHints(TargetMetadata{}, &local, LocalScoreFromMatches(local.YaraResults))
-	if hints.HighConfidence {
-		return 40
-	}
-
-	score := 0.0
-	if hasTag(hints.LocalTags, "upx", "packed", "packer", "encrypt", "obfus", "obfuscated") {
-		score += 10
-	}
-	if hasTag(hints.LocalTags, "anti_debug", "antidebug", "anti-sandbox", "sandbox", "vm", "anti_vm") {
-		score += 20
-	}
-	if hasTag(hints.LocalTags, "apt", "rat", "c2", "toolkit", "inject", "credential", "t1055", "t1003") {
-		score += 30
-	}
-	if score == 0 {
-		score = ClampScore(LocalScoreFromMatches(local.YaraResults) * 0.4)
-	}
-	if score > 40 {
-		score = 40
-	}
-	return score
+	summary := summarizeLocalMatches(local.YaraResults)
+	matchScore := LocalScoreFromMatches(local.YaraResults)
+	return smartLocalScoreFromSummary(summary, matchScore)
 }
 
 func crossValidationScore(local *LocalAnalysis, localScore float64, cloud *CloudAnalysis, cloudScore float64) float64 {

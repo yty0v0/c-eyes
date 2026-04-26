@@ -302,3 +302,98 @@ func TestYaraXMatcherProcessMemoryFallbackWhenPayloadMissing(t *testing.T) {
 		t.Fatalf("expected score=0, got %v", score)
 	}
 }
+
+func TestYaraXMatcherSkipsSelfProcessByPID(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	matcher := &YaraXMatcher{
+		Engine:     stubYaraXEngine{calls: &calls},
+		CurrentPID: 4242,
+	}
+	pid := 4242
+
+	analysis, score, err := matcher.Match(context.Background(), TargetMetadata{
+		TargetType: TargetTypeProcess,
+		TargetPath: `C:\tools\c-eyes.exe`,
+		PID:        &pid,
+	}, ScanRecord{})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !analysis.LocalFallback {
+		t.Fatal("expected fallback for self process")
+	}
+	if analysis.LocalMatched {
+		t.Fatal("expected local_matched=false for self process")
+	}
+	if calls != 0 {
+		t.Fatalf("expected MatchFile not called, got %d", calls)
+	}
+	if score != 0 {
+		t.Fatalf("expected score=0, got %v", score)
+	}
+}
+
+func TestYaraXMatcherSkipsSelfProcessByPath(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	matcher := &YaraXMatcher{
+		Engine:         stubYaraXEngine{calls: &calls},
+		CurrentExePath: `C:\TOOLS\c-eyes.exe`,
+		CurrentPID:     9999,
+	}
+	pid := 1234
+
+	analysis, score, err := matcher.Match(context.Background(), TargetMetadata{
+		TargetType: TargetTypeProcess,
+		TargetPath: `c:\tools\c-eyes.exe`,
+		PID:        &pid,
+	}, ScanRecord{})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !analysis.LocalFallback {
+		t.Fatal("expected fallback for self process path")
+	}
+	if analysis.LocalMatched {
+		t.Fatal("expected local_matched=false for self process path")
+	}
+	if calls != 0 {
+		t.Fatalf("expected MatchFile not called, got %d", calls)
+	}
+	if score != 0 {
+		t.Fatalf("expected score=0, got %v", score)
+	}
+}
+
+func TestYaraXMatcherSkipsSelfFileByPath(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	matcher := &YaraXMatcher{
+		Engine:         stubYaraXEngine{calls: &calls},
+		CurrentExePath: `/home/kali/Desktop/dist-linux-amd64/c-eyes`,
+	}
+
+	analysis, score, err := matcher.Match(context.Background(), TargetMetadata{
+		TargetType: TargetTypeFile,
+		TargetPath: `/home/kali/Desktop/dist-linux-amd64/c-eyes`,
+	}, ScanRecord{})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !analysis.LocalFallback {
+		t.Fatal("expected fallback for self executable file path")
+	}
+	if analysis.LocalMatched {
+		t.Fatal("expected local_matched=false for self executable file path")
+	}
+	if calls != 0 {
+		t.Fatalf("expected MatchFile not called, got %d", calls)
+	}
+	if score != 0 {
+		t.Fatalf("expected score=0, got %v", score)
+	}
+}

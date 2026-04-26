@@ -259,11 +259,9 @@ func (t *adaptiveTuner) start(ctx context.Context, total int, done *atomic.Int64
 
 			if progress != nil {
 				stage := fmt.Sprintf(
-					"adaptive workers=%d pps=%d cpu=%.2f mem_mb=%d backlog=%d",
+					"adaptive w=%d p=%d b=%d",
 					nextWorkers,
 					nextPPS,
-					stats.cpuUtilization,
-					stats.memoryBytes/(1024*1024),
 					backlog,
 				)
 				progress(int(done.Load()), total, stage)

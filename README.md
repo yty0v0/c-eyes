@@ -50,7 +50,7 @@ Web文件基本信息获取：`c-eyes filescan --all`
 
 内网主机探测： `c-eyes netscan`
 
-可访问网段探测： `c-eyes netscan --reachablesegments`
+可访问网段探测： `c-eyes netscan -reachablesegments`
 
 软件物料清单采集：`c-eyes sbom -p <app-path>`
 

@@ -3,6 +3,7 @@ package riskanalysis
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -57,6 +58,61 @@ func (m pathErrorLocalMatcher) Match(ctx context.Context, target TargetMetadata,
 		return LocalAnalysis{}, 0, errors.New("local engine boom")
 	}
 	return m.analysis, m.score, nil
+}
+
+type delayedCloudClient struct{}
+
+func (c delayedCloudClient) Query(ctx context.Context, hashes Hashes) (CloudAnalysis, float64, error) {
+	delay := 2 * time.Millisecond
+	switch {
+	case len(hashes.Sha256) > 0 && hashes.Sha256[len(hashes.Sha256)-1] == '1':
+		delay = 12 * time.Millisecond
+	case len(hashes.Sha256) > 0 && hashes.Sha256[len(hashes.Sha256)-1] == '2':
+		delay = 8 * time.Millisecond
+	case len(hashes.Sha256) > 0 && hashes.Sha256[len(hashes.Sha256)-1] == '3':
+		delay = 4 * time.Millisecond
+	}
+	select {
+	case <-ctx.Done():
+		return CloudAnalysis{CloudQueried: false}, 0, ctx.Err()
+	case <-time.After(delay):
+	}
+	return CloudAnalysis{
+		CloudQueried:  true,
+		CloudProvider: "virustotal",
+		Malicious:     2,
+		TotalEngines:  70,
+		DetectionRate: "2/70",
+	}, 30, nil
+}
+
+type probeLocalMatcher struct {
+	inFlight    int32
+	maxInFlight int32
+}
+
+func (m *probeLocalMatcher) Match(ctx context.Context, target TargetMetadata, record ScanRecord) (LocalAnalysis, float64, error) {
+	current := atomic.AddInt32(&m.inFlight, 1)
+	defer atomic.AddInt32(&m.inFlight, -1)
+	for {
+		maxSeen := atomic.LoadInt32(&m.maxInFlight)
+		if current <= maxSeen {
+			break
+		}
+		if atomic.CompareAndSwapInt32(&m.maxInFlight, maxSeen, current) {
+			break
+		}
+	}
+	time.Sleep(2 * time.Millisecond)
+	return LocalAnalysis{LocalMatched: false}, 0, nil
+}
+
+type probeLocalMatcherSafe struct {
+	probeLocalMatcher
+}
+
+func (m *probeLocalMatcherSafe) ConcurrentSafe() bool {
+	return true
 }
 
 type stubWhitelistEngine struct {
@@ -330,6 +386,52 @@ func TestAnalyzerWhitelistContinueTriggersLocalAndCloud(t *testing.T) {
 	}
 	if client.calls == 0 {
 		t.Fatalf("expected cloud query to run on continue path")
+	}
+}
+
+func TestAnalyzerDeepWhitelistContinueEvaluatedOnce(t *testing.T) {
+	client := &countingCloudClient{}
+	local := &countingLocalMatcher{
+		analysis: LocalAnalysis{
+			LocalMatched: true,
+			YaraResults: []YaraRuleMatch{
+				{RuleName: "suspicious", Tags: []string{"packed"}, Severity: 60},
+			},
+		},
+		score: 60,
+	}
+	wl := &stubWhitelistEngine{
+		analysis: WhitelistAnalysis{
+			Checked:  true,
+			Decision: WhitelistDecisionContinue,
+			Source:   "whitelist_funnel",
+		},
+	}
+	analyzer := Analyzer{
+		Cloud:     client,
+		Local:     local,
+		Whitelist: wl,
+	}
+	records := []ScanRecord{{Raw: map[string]any{
+		"target_type": "file",
+		"target_path": "C:/tmp/unknown.bin",
+		"hashes": map[string]any{
+			"sha256": "abc",
+		},
+	}}}
+
+	_, err := analyzer.Analyze(context.Background(), records, ModeDeep)
+	if err != nil {
+		t.Fatalf("Analyze error: %v", err)
+	}
+	if wl.calls != 1 {
+		t.Fatalf("expected whitelist evaluate once in deep mode, got %d", wl.calls)
+	}
+	if local.calls == 0 {
+		t.Fatalf("expected local matcher to run on deep continue path")
+	}
+	if client.calls == 0 {
+		t.Fatalf("expected cloud query to run on deep continue path")
 	}
 }
 
@@ -635,6 +737,103 @@ func TestAnalyzerCloudDetectionOverrideForcesRiskLevel(t *testing.T) {
 	}
 	if got := results[0].RiskAssessment.RiskScore; got < 60 {
 		t.Fatalf("expected detection override score floor 60, got %.2f", got)
+	}
+}
+
+func TestAnalyzerParallelCloudOnlyPreservesResultOrder(t *testing.T) {
+	records := []ScanRecord{
+		{Raw: map[string]any{"target_type": "file", "target_path": "C:/tmp/a.bin", "hashes": map[string]any{"sha256": "1"}}},
+		{Raw: map[string]any{"target_type": "file", "target_path": "C:/tmp/b.bin", "hashes": map[string]any{"sha256": "2"}}},
+		{Raw: map[string]any{"target_type": "file", "target_path": "C:/tmp/c.bin", "hashes": map[string]any{"sha256": "3"}}},
+		{Raw: map[string]any{"target_type": "file", "target_path": "C:/tmp/d.bin", "hashes": map[string]any{"sha256": "4"}}},
+	}
+	onResultPaths := make([]string, 0, len(records))
+	analyzer := Analyzer{
+		Cloud:               delayedCloudClient{},
+		AnalysisConcurrency: 4,
+		OnResult: func(result AnalysisResult) {
+			onResultPaths = append(onResultPaths, result.TargetPath)
+		},
+	}
+
+	results, err := analyzer.Analyze(context.Background(), records, ModeCloudOnly)
+	if err != nil {
+		t.Fatalf("Analyze error: %v", err)
+	}
+	if len(results) != len(records) {
+		t.Fatalf("expected %d results, got %d", len(records), len(results))
+	}
+	for i, result := range results {
+		expected, _ := records[i].Raw["target_path"].(string)
+		if result.TargetPath != expected {
+			t.Fatalf("result order mismatch at index %d: expected %v, got %s", i, expected, result.TargetPath)
+		}
+	}
+	if len(onResultPaths) != len(records) {
+		t.Fatalf("expected onResult callbacks=%d, got %d", len(records), len(onResultPaths))
+	}
+	for i, path := range onResultPaths {
+		if path != results[i].TargetPath {
+			t.Fatalf("onResult order mismatch at index %d: expected %s, got %s", i, results[i].TargetPath, path)
+		}
+	}
+}
+
+func TestAnalyzerParallelSmartSerializesUnsafeLocalMatcher(t *testing.T) {
+	local := &probeLocalMatcher{}
+	analyzer := Analyzer{
+		Local:               local,
+		Cloud:               delayedCloudClient{},
+		AnalysisConcurrency: 4,
+	}
+	records := make([]ScanRecord, 0, 24)
+	for i := 0; i < 24; i++ {
+		records = append(records, ScanRecord{
+			Raw: map[string]any{
+				"target_type": "file",
+				"target_path": "C:/tmp/sample.bin",
+				"hashes": map[string]any{
+					"sha256": "2",
+				},
+			},
+		})
+	}
+
+	_, err := analyzer.Analyze(context.Background(), records, ModeSmart)
+	if err != nil {
+		t.Fatalf("Analyze error: %v", err)
+	}
+	if got := atomic.LoadInt32(&local.maxInFlight); got != 1 {
+		t.Fatalf("expected unsafe local matcher to be serialized, maxInFlight=%d", got)
+	}
+}
+
+func TestAnalyzerParallelSmartAllowsConcurrentSafeLocalMatcher(t *testing.T) {
+	local := &probeLocalMatcherSafe{}
+	analyzer := Analyzer{
+		Local:               local,
+		Cloud:               delayedCloudClient{},
+		AnalysisConcurrency: 4,
+	}
+	records := make([]ScanRecord, 0, 24)
+	for i := 0; i < 24; i++ {
+		records = append(records, ScanRecord{
+			Raw: map[string]any{
+				"target_type": "file",
+				"target_path": "C:/tmp/sample.bin",
+				"hashes": map[string]any{
+					"sha256": "2",
+				},
+			},
+		})
+	}
+
+	_, err := analyzer.Analyze(context.Background(), records, ModeSmart)
+	if err != nil {
+		t.Fatalf("Analyze error: %v", err)
+	}
+	if got := atomic.LoadInt32(&local.maxInFlight); got <= 1 {
+		t.Fatalf("expected concurrent-safe local matcher to run in parallel, maxInFlight=%d", got)
 	}
 }
 
