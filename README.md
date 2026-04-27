@@ -27,6 +27,9 @@ Linux 操作系统：建议以 root 用户身份运行 C-Eyes 工具。
 ```
 
 ## 云平台配置说明
+建议分析少量目标时使用（云平台本身会有限流和限量）。
+
+可执行文件同目录放置 `c-eyes-cloud.json` 文件，直接打开配置api-key即可。
 
 `c-eyes` 的风险分析支持联网云平台分析，当前支持以下平台：
 - `virustotal`
@@ -35,16 +38,16 @@ Linux 操作系统：建议以 root 用户身份运行 C-Eyes 工具。
 - `otx`
 - `triage`
 
-在可执行文件同目录放置 `c-eyes-cloud.json` 文件，直接打开配置api-key即可
-
 
 ## 主要操作说明
 ### 资产与信息采集
-主机基本信息获取: `c-eyes hostscan --all`
+主机信息获取: `c-eyes hostscan --all`
 
-Web文件基本信息获取：`c-eyes filescan --all`
+Web文件信息获取：`c-eyes filescan --all`
 
-指定目录基本信息获取： `c-eyes filescan --scan-mode path <path>`
+指定目录信息获取： `c-eyes filescan --scan-mode path <path>`
+
+指定目录智能信息获取(只获取高危/敏感目录)： `c-eyes filescan --scan-mode path <path> --smart`
 
 主机日志信息获取： `c-eyes eventlog`  
 
@@ -55,13 +58,15 @@ Web文件基本信息获取：`c-eyes filescan --all`
 软件物料清单采集：`c-eyes sbom -p <app-path>`
 
 ### 风险分析
-主机信息异常分析： `c-eyes hostscan --all -r`
+主机异常分析： `c-eyes hostscan --all -r`
 
 Web文件异常分析: `c-eyes filescan --all -r`
 
 指定目录异常分析： `c-eyes filescan --scan-mode path <path> -r`
 
-指定分析源进行异常分析： `c-eyes-r -input/-file/-dir/-pid/-pname`   (必须指定分析源，参数五选一)
+指定目录智能分析(只分析高危/敏感目录)： `c-eyes filescan --scan-mode path <path> -r --smart`
+
+指定分析源异常分析： `c-eyes-r -input/-file/-dir/-pid/-pname`   (必须指定分析源，参数五选一)
 
     -input <scan.json/scan.csv/scan.xlsx>    指定已有扫描结果文件路径当作分析源
     -file <path>                             指定单独文件路径当作分析源
