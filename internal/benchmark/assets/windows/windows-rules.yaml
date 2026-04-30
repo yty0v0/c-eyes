@@ -1,0 +1,792 @@
+version: 1
+template: windows
+checks:
+  - id: "8"
+    name: "系统时区信息"
+    category: "system"
+    description: "采集当前系统时区、显示名称和标准时区键名。"
+    expected: "时区配置符合组织要求。"
+    severity: "info"
+    recommendation: "核对时区配置是否与服务器所属地域和运维基线一致。"
+    evaluator:
+      kind: informational
+
+  - id: "4"
+    name: "本地用户账户信息"
+    category: "account"
+    description: "采集本地用户账户、口令策略状态和账户说明信息。"
+    expected: "本地账户配置符合组织账号管理基线。"
+    severity: "info"
+    recommendation: "结合账号口令、禁用状态和账户说明人工核对高风险账户。"
+    evaluator:
+      kind: informational
+
+  - id: "0"
+    name: "网络连接信息"
+    category: "network"
+    description: "采集当前 TCP/UDP 网络连接与监听端口信息。"
+    expected: "对外连接和监听端口符合最小暴露原则。"
+    severity: "info"
+    recommendation: "人工核对异常监听端口和可疑外联连接。"
+    evaluator:
+      kind: informational
+
+  - id: "9"
+    name: "启动项信息"
+    category: "startup"
+    description: "采集注册表 Run/RunOnce 与启动目录中的启动项。"
+    expected: "启动项配置符合最小持久化原则。"
+    severity: "info"
+    recommendation: "核查未知启动项、临时目录启动项和高风险路径启动项。"
+    evaluator:
+      kind: informational
+
+  - id: "12"
+    name: "系统补丁信息"
+    category: "patch"
+    description: "采集系统中已安装的热修复/补丁标识。"
+    expected: "系统补丁安装情况满足运维要求。"
+    severity: "info"
+    recommendation: "结合补丁策略核对关键安全更新是否已按要求安装。"
+    evaluator:
+      kind: informational
+
+  - id: "5"
+    name: "本地用户组信息"
+    category: "account"
+    description: "采集本地用户组及其成员关系。"
+    expected: "本地高权限组成员配置符合最小权限原则。"
+    severity: "info"
+    recommendation: "重点核查 Administrators 等高权限组成员是否存在越权账号。"
+    evaluator:
+      kind: informational
+
+  - id: "6"
+    name: "系统服务信息"
+    category: "service"
+    description: "采集系统服务的显示名、启动类型、运行状态和路径。"
+    expected: "服务配置符合最小化与可信路径要求。"
+    severity: "info"
+    recommendation: "重点核查自动启动且来源不明的服务。"
+    evaluator:
+      kind: informational
+
+  - id: "1"
+    name: "系统进程信息"
+    category: "process"
+    description: "采集系统当前运行进程、路径、会话与用户上下文。"
+    expected: "运行进程符合主机运行基线。"
+    severity: "info"
+    recommendation: "重点核查来源不明、路径异常和会话异常的进程。"
+    evaluator:
+      kind: informational
+
+  - id: "3"
+    name: "主机名信息"
+    category: "system"
+    description: "采集当前主机名。"
+    expected: "主机命名符合运维规范。"
+    severity: "info"
+    recommendation: "核对主机命名是否符合资产命名标准。"
+    evaluator:
+      kind: informational
+
+  - id: "2"
+    name: "操作系统信息"
+    category: "system"
+    description: "采集操作系统产品名、版本、补丁级别与构建信息。"
+    expected: "操作系统版本符合组织支持矩阵。"
+    severity: "info"
+    recommendation: "核对系统版本是否在受支持范围内。"
+    evaluator:
+      kind: informational
+
+  - id: "10"
+    name: "共享资源信息"
+    category: "share"
+    description: "采集当前主机的共享名称、说明和路径。"
+    expected: "共享资源符合最小暴露原则。"
+    severity: "info"
+    recommendation: "重点核查默认共享以外的业务共享和异常路径共享。"
+    evaluator:
+      kind: informational
+
+  - id: "7"
+    name: "临时基线工件清理"
+    category: "meta"
+    description: "记录模板执行后的临时工件清理状态。"
+    expected: "临时工件已安全清理。"
+    severity: "info"
+    recommendation: "确认采集过程未残留敏感中间文件。"
+    evaluator:
+      kind: informational
+
+  - id: "W-FW-001"
+    name: "Windows 防火墙已启用"
+    category: "security"
+    description: "检查 Domain/Standard/Public 三类防火墙配置文件是否全部启用。"
+    expected: "所有支持的防火墙配置文件均处于启用状态。"
+    severity: "medium"
+    recommendation: "启用 Windows Defender Firewall，并核对各配置文件的 EnableFirewall 配置。"
+    evaluator:
+      kind: bool_true
+      field: enabled
+
+  - id: "W-AV-001"
+    name: "已检测到杀毒/防病毒能力"
+    category: "security"
+    description: "检查系统是否存在已安装或正在运行的杀毒/防病毒产品迹象。"
+    expected: "主机存在可识别的杀毒/防病毒能力。"
+    severity: "medium"
+    recommendation: "部署并启用受信任的杀毒或终端防护产品。"
+    evaluator:
+      kind: bool_true
+      field: detected
+
+  - id: "W-FS-001"
+    name: "固定磁盘文件系统为 NTFS"
+    category: "filesystem"
+    description: "检查所有固定磁盘是否均采用 NTFS 文件系统。"
+    expected: "所有固定磁盘均为 NTFS。"
+    severity: "medium"
+    recommendation: "将非 NTFS 固定磁盘迁移或重建为 NTFS 文件系统。"
+    evaluator:
+      kind: bool_true
+      field: all_ntfs
+
+  - id: "W-SHARE-001"
+    name: "共享权限不存在 Everyone"
+    category: "share"
+    description: "检查共享 ACL 中是否存在 Everyone（S-1-1-0）访问主体。"
+    expected: "共享权限中不存在 Everyone。"
+    severity: "high"
+    recommendation: "移除共享 ACL 中的 Everyone，并按最小权限原则重新分配访问控制。"
+    evaluator:
+      kind: bool_true
+      field: everyone_absent
+
+  - id: "W-PASS-001"
+    name: "最小密码长度不少于 8"
+    category: "password_policy"
+    description: "检查本地安全策略中的 MinimumPasswordLength。"
+    expected: "最小密码长度不小于 8。"
+    severity: "high"
+    recommendation: "将最小密码长度调整为不少于 8 位。"
+    evaluator:
+      kind: int_gte
+      field: int_value
+      min: 8
+
+  - id: "W-PASS-002"
+    name: "密码复杂度已启用"
+    category: "password_policy"
+    description: "检查本地安全策略中的 PasswordComplexity。"
+    expected: "密码复杂度已启用。"
+    severity: "high"
+    recommendation: "启用密码复杂度策略，要求密码满足复杂度要求。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-PASS-003"
+    name: "密码历史长度不少于 5"
+    category: "password_policy"
+    description: "检查本地安全策略中的 PasswordHistorySize。"
+    expected: "密码历史长度不小于 5。"
+    severity: "medium"
+    recommendation: "配置密码历史长度，防止重复使用近期密码。"
+    evaluator:
+      kind: int_gte
+      field: int_value
+      min: 5
+
+  - id: "W-PASS-004"
+    name: "密码最长使用期在 1 到 90 天之间"
+    category: "password_policy"
+    description: "检查本地安全策略中的 MaximumPasswordAge。"
+    expected: "密码最长使用期在 1 到 90 天之间。"
+    severity: "medium"
+    recommendation: "将密码最长使用期设置在 1 到 90 天之间。"
+    evaluator:
+      kind: int_between
+      field: int_value
+      min: 1
+      max: 90
+
+  - id: "W-PASS-006"
+    name: "最小密码使用期不少于 1 天"
+    category: "password_policy"
+    description: "检查本地安全策略中的 MinimumPasswordAge。"
+    expected: "最小密码使用期不少于 1 天。"
+    severity: "medium"
+    recommendation: "设置最小密码使用期，防止连续快速修改密码绕过密码历史。"
+    evaluator:
+      kind: int_gte
+      field: int_value
+      min: 1
+
+  - id: "W-LOCK-001"
+    name: "帐户锁定阈值已配置"
+    category: "lockout_policy"
+    description: "检查本地安全策略中的 LockoutBadCount。"
+    expected: "锁定阈值在 1 到 10 次之间。"
+    severity: "medium"
+    recommendation: "配置适当的帐户锁定阈值。"
+    evaluator:
+      kind: int_between
+      field: int_value
+      min: 1
+      max: 10
+
+  - id: "W-LOCK-002"
+    name: "允许管理员帐户被锁定"
+    category: "lockout_policy"
+    description: "检查本地安全策略中的 AllowAdministratorLockout。"
+    expected: "AllowAdministratorLockout = 1。"
+    severity: "medium"
+    recommendation: "启用管理员帐户锁定策略，避免暴力破解无约束。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-LOCK-003"
+    name: "锁定计数重置时间在 1 到 30 分钟之间"
+    category: "lockout_policy"
+    description: "检查本地安全策略中的 ResetLockoutCount。"
+    expected: "ResetLockoutCount 在 1 到 30 分钟之间。"
+    severity: "low"
+    recommendation: "将锁定计数重置时间设置在合理范围内。"
+    evaluator:
+      kind: int_between
+      field: int_value
+      min: 1
+      max: 30
+
+  - id: "W-LOCK-004"
+    name: "锁定持续时间在 1 到 30 分钟之间"
+    category: "lockout_policy"
+    description: "检查本地安全策略中的 LockoutDuration。"
+    expected: "LockoutDuration 在 1 到 30 分钟之间。"
+    severity: "low"
+    recommendation: "将帐户锁定持续时间设置在合理范围内。"
+    evaluator:
+      kind: int_between
+      field: int_value
+      min: 1
+      max: 30
+
+  - id: "W-ACC-002"
+    name: "Guest 帐户已禁用"
+    category: "account_policy"
+    description: "检查本地安全策略中的 EnableGuestAccount。"
+    expected: "Guest 帐户保持禁用。"
+    severity: "high"
+    recommendation: "禁用 Guest 帐户，避免匿名或弱身份访问。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-ACC-003"
+    name: "Administrator 帐户已重命名"
+    category: "account_policy"
+    description: "检查本地安全策略中的 NewAdministratorName。"
+    expected: "Administrator 帐户名称已被修改。"
+    severity: "medium"
+    recommendation: "重命名内置 Administrator 帐户。"
+    evaluator:
+      kind: string_not_equals
+      field: value
+      value: "Administrator"
+
+  - id: "W-ACC-004"
+    name: "Guest 帐户已重命名"
+    category: "account_policy"
+    description: "检查本地安全策略中的 NewGuestName。"
+    expected: "Guest 帐户名称已被修改。"
+    severity: "low"
+    recommendation: "重命名内置 Guest 帐户。"
+    evaluator:
+      kind: string_not_equals
+      field: value
+      value: "Guest"
+
+  - id: "W-ACC-005"
+    name: "Administrator 帐户已禁用"
+    category: "account_policy"
+    description: "检查本地安全策略中的 EnableAdminAccount。"
+    expected: "EnableAdminAccount = 0。"
+    severity: "medium"
+    recommendation: "如无特殊运维要求，禁用内置 Administrator 帐户。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-PASS-005"
+    name: "禁止空密码本地帐户进行网络登录"
+    category: "password_policy"
+    description: "检查注册表策略 LimitBlankPasswordUse。"
+    expected: "LimitBlankPasswordUse = 1。"
+    severity: "high"
+    recommendation: "启用空密码限制，禁止空密码帐户通过网络登录。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-PASS-007"
+    name: "未允许可逆加密存储密码"
+    category: "password_policy"
+    description: "检查本地安全策略中的 ClearTextPassword。"
+    expected: "ClearTextPassword = 0。"
+    severity: "high"
+    recommendation: "禁用以可逆加密形式存储密码。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-AUDIT-001"
+    name: "登录事件审计同时记录成功和失败"
+    category: "audit_policy"
+    description: "检查本地安全策略中的 AuditLogonEvents。"
+    expected: "AuditLogonEvents = 3。"
+    severity: "medium"
+    recommendation: "启用登录事件的成功与失败审计。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "3"
+
+  - id: "W-AUDIT-002"
+    name: "帐户登录事件审计同时记录成功和失败"
+    category: "audit_policy"
+    description: "检查本地安全策略中的 AuditAccountLogon。"
+    expected: "AuditAccountLogon = 3。"
+    severity: "medium"
+    recommendation: "启用帐户登录事件的成功与失败审计。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "3"
+
+  - id: "W-AUDIT-003"
+    name: "系统事件审计同时记录成功和失败"
+    category: "audit_policy"
+    description: "检查本地安全策略中的 AuditSystemEvents。"
+    expected: "AuditSystemEvents = 3。"
+    severity: "medium"
+    recommendation: "启用系统事件的成功与失败审计。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "3"
+
+  - id: "W-AUDIT-004"
+    name: "策略更改审计同时记录成功和失败"
+    category: "audit_policy"
+    description: "检查本地安全策略中的 AuditPolicyChange。"
+    expected: "AuditPolicyChange = 3。"
+    severity: "medium"
+    recommendation: "启用策略更改的成功与失败审计。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "3"
+
+  - id: "W-AUDIT-005"
+    name: "帐户管理审计同时记录成功和失败"
+    category: "audit_policy"
+    description: "检查本地安全策略中的 AuditAccountManage。"
+    expected: "AuditAccountManage = 3。"
+    severity: "medium"
+    recommendation: "启用帐户管理的成功与失败审计。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "3"
+
+  - id: "W-UAC-001"
+    name: "已启用 UAC"
+    category: "uac_policy"
+    description: "检查注册表策略 EnableLUA。"
+    expected: "EnableLUA = 1。"
+    severity: "high"
+    recommendation: "启用用户帐户控制（UAC）。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-UAC-002"
+    name: "管理员批准模式已增强"
+    category: "uac_policy"
+    description: "检查注册表策略 FilterAdministratorToken。"
+    expected: "FilterAdministratorToken = 1。"
+    severity: "medium"
+    recommendation: "启用管理员批准模式增强策略。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-UAC-003"
+    name: "UAC 提示在安全桌面上显示"
+    category: "uac_policy"
+    description: "检查注册表策略 PromptOnSecureDesktop。"
+    expected: "PromptOnSecureDesktop = 1。"
+    severity: "medium"
+    recommendation: "启用在安全桌面上显示 UAC 提示。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-UAC-004"
+    name: "已启用安装程序检测"
+    category: "uac_policy"
+    description: "检查注册表策略 EnableInstallerDetection。"
+    expected: "EnableInstallerDetection = 1。"
+    severity: "low"
+    recommendation: "启用安装程序检测策略。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-UAC-005"
+    name: "仅允许受保护路径的 UIAccess 应用"
+    category: "uac_policy"
+    description: "检查注册表策略 EnableSecureUIAPaths。"
+    expected: "EnableSecureUIAPaths = 1。"
+    severity: "medium"
+    recommendation: "仅允许受保护位置的 UIAccess 应用运行。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-UAC-006"
+    name: "已启用文件和注册表虚拟化"
+    category: "uac_policy"
+    description: "检查注册表策略 EnableVirtualization。"
+    expected: "EnableVirtualization = 1。"
+    severity: "low"
+    recommendation: "启用 UAC 虚拟化兼容策略。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-UAC-007"
+    name: "管理员提升不允许无提示"
+    category: "uac_policy"
+    description: "检查 ConsentPromptBehaviorAdmin。"
+    expected: "ConsentPromptBehaviorAdmin 为 2 或 5。"
+    severity: "high"
+    recommendation: "将管理员提升提示改为需要同意或凭据确认，而不是无提示提升。"
+    evaluator:
+      kind: int_in
+      field: int_value
+      value: "2,5"
+
+  - id: "W-UAC-008"
+    name: "标准用户提升行为为自动拒绝"
+    category: "uac_policy"
+    description: "检查 ConsentPromptBehaviorUser。"
+    expected: "ConsentPromptBehaviorUser = 3。"
+    severity: "medium"
+    recommendation: "将标准用户的提升行为设置为自动拒绝。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "3"
+
+  - id: "W-LOGON-001"
+    name: "登录界面不显示上次登录用户名"
+    category: "logon_policy"
+    description: "检查注册表策略 DontDisplayLastUserName。"
+    expected: "DontDisplayLastUserName = 1。"
+    severity: "medium"
+    recommendation: "隐藏上次登录用户名，减少信息泄露。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-LOGON-002"
+    name: "未登录时不允许关机"
+    category: "logon_policy"
+    description: "检查注册表策略 ShutdownWithoutLogon。"
+    expected: "ShutdownWithoutLogon = 0。"
+    severity: "low"
+    recommendation: "禁止在未登录状态下直接关闭系统。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-LOGON-003"
+    name: "缓存登录次数不超过 10"
+    category: "logon_policy"
+    description: "检查注册表策略 CachedLogonsCount。"
+    expected: "CachedLogonsCount 小于或等于 10。"
+    severity: "low"
+    recommendation: "减少缓存登录次数，降低离线凭据缓存风险。"
+    evaluator:
+      kind: int_lte
+      field: int_value
+      max: 10
+
+  - id: "W-SMB-001"
+    name: "已限制空会话访问"
+    category: "smb_policy"
+    description: "检查注册表策略 RestrictNullSessAccess。"
+    expected: "RestrictNullSessAccess = 1。"
+    severity: "high"
+    recommendation: "限制空会话访问，避免匿名 SMB 会话访问敏感资源。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-SMB-002"
+    name: "已禁止存储 LM Hash"
+    category: "smb_policy"
+    description: "检查注册表策略 NoLMHash。"
+    expected: "NoLMHash = 1。"
+    severity: "high"
+    recommendation: "启用禁止存储 LM Hash 策略。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-SMB-003"
+    name: "已限制匿名枚举 SAM 帐户和共享"
+    category: "smb_policy"
+    description: "检查注册表策略 RestrictAnonymousSAM。"
+    expected: "RestrictAnonymousSAM = 1。"
+    severity: "high"
+    recommendation: "限制匿名枚举 SAM 帐户和共享。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-SMB-004"
+    name: "Everyone 不包含匿名用户"
+    category: "smb_policy"
+    description: "检查注册表策略 EveryoneIncludesAnonymous。"
+    expected: "EveryoneIncludesAnonymous = 0。"
+    severity: "high"
+    recommendation: "禁止将匿名用户映射到 Everyone 权限集合。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-SMB-005"
+    name: "已禁用匿名 SID/名称转换"
+    category: "smb_policy"
+    description: "检查本地安全策略中的 LSAAnonymousNameLookup。"
+    expected: "LSAAnonymousNameLookup = 0。"
+    severity: "medium"
+    recommendation: "禁用匿名 SID/名称转换能力。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-SMB-006"
+    name: "网络访问模型未使用仅来宾模式"
+    category: "smb_policy"
+    description: "检查注册表策略 ForceGuest。"
+    expected: "ForceGuest = 0。"
+    severity: "medium"
+    recommendation: "禁止强制使用 Guest 进行网络访问。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-SMB-007"
+    name: "服务器端要求 SMB 安全签名"
+    category: "smb_policy"
+    description: "检查 LanManServer 的 RequireSecuritySignature。"
+    expected: "RequireSecuritySignature = 1。"
+    severity: "medium"
+    recommendation: "要求服务器端 SMB 通信使用安全签名。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-SMB-008"
+    name: "客户端启用 SMB 安全签名"
+    category: "smb_policy"
+    description: "检查 LanmanWorkstation 的 EnableSecuritySignature。"
+    expected: "EnableSecuritySignature = 1。"
+    severity: "medium"
+    recommendation: "启用客户端 SMB 安全签名。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-SMB-009"
+    name: "客户端未启用明文密码传输"
+    category: "smb_policy"
+    description: "检查 LanmanWorkstation 的 EnablePlainTextPassword。"
+    expected: "EnablePlainTextPassword = 0。"
+    severity: "high"
+    recommendation: "禁止客户端通过 SMB 使用明文密码。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-SMB-010"
+    name: "自动断开空闲会话时间不超过 15 分钟"
+    category: "smb_policy"
+    description: "检查 LanManServer 的 AutoDisconnect。"
+    expected: "AutoDisconnect 小于或等于 15。"
+    severity: "low"
+    recommendation: "减少 SMB 空闲会话保留时间。"
+    evaluator:
+      kind: int_lte
+      field: int_value
+      max: 15
+
+  - id: "W-SMB-011"
+    name: "启用强制注销已过期会话"
+    category: "smb_policy"
+    description: "检查 LanManServer 的 EnableForcedLogOff。"
+    expected: "EnableForcedLogOff = 1。"
+    severity: "low"
+    recommendation: "启用会话过期后的强制注销。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-NETLOGON-001"
+    name: "域安全通道要求签名或加密"
+    category: "netlogon_policy"
+    description: "检查 Netlogon 策略 RequireSignOrSeal。"
+    expected: "RequireSignOrSeal = 1。"
+    severity: "medium"
+    recommendation: "要求安全通道进行签名或加密。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-NETLOGON-005"
+    name: "已启用机器帐户密码自动更改"
+    category: "netlogon_policy"
+    description: "检查 Netlogon 策略 DisablePasswordChange。"
+    expected: "DisablePasswordChange = 0。"
+    severity: "medium"
+    recommendation: "允许机器帐户定期自动更改密码。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "0"
+
+  - id: "W-NETLOGON-006"
+    name: "机器帐户密码最长使用期不超过 30 天"
+    category: "netlogon_policy"
+    description: "检查 Netlogon 策略 MaximumPasswordAge。"
+    expected: "MaximumPasswordAge 小于或等于 30。"
+    severity: "low"
+    recommendation: "将机器帐户密码最长使用期限制在 30 天以内。"
+    evaluator:
+      kind: int_lte
+      field: int_value
+      max: 30
+
+  - id: "W-LDAP-001"
+    name: "LDAP 客户端签名要求已启用"
+    category: "ldap_policy"
+    description: "检查 LDAPClientIntegrity。"
+    expected: "LDAPClientIntegrity 不小于 1。"
+    severity: "medium"
+    recommendation: "要求 LDAP 客户端执行签名或更高完整性保护。"
+    evaluator:
+      kind: int_gte
+      field: int_value
+      min: 1
+
+  - id: "W-CRED-001"
+    name: "未缓存域凭据"
+    category: "credential_policy"
+    description: "检查 DisableDomainCreds。"
+    expected: "DisableDomainCreds = 1。"
+    severity: "medium"
+    recommendation: "禁用缓存域凭据以减少离线凭据滥用风险。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-NETLOGON-002"
+    name: "域安全通道要求强密钥"
+    category: "netlogon_policy"
+    description: "检查 Netlogon 策略 RequireStrongKey。"
+    expected: "RequireStrongKey = 1。"
+    severity: "medium"
+    recommendation: "要求域安全通道使用强密钥。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-NETLOGON-003"
+    name: "域安全通道启用加封"
+    category: "netlogon_policy"
+    description: "检查 Netlogon 策略 SealSecureChannel。"
+    expected: "SealSecureChannel = 1。"
+    severity: "medium"
+    recommendation: "启用域安全通道加封。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-NETLOGON-004"
+    name: "域安全通道启用签名"
+    category: "netlogon_policy"
+    description: "检查 Netlogon 策略 SignSecureChannel。"
+    expected: "SignSecureChannel = 1。"
+    severity: "medium"
+    recommendation: "启用域安全通道签名。"
+    evaluator:
+      kind: int_equals
+      field: int_value
+      value: "1"
+
+  - id: "W-PRIV-001"
+    name: "Guest 被拒绝从网络访问此计算机"
+    category: "privilege_rights"
+    description: "检查 SeDenyNetworkLogonRight 是否包含 Guest。"
+    expected: "Guest 在 SeDenyNetworkLogonRight 中。"
+    severity: "high"
+    recommendation: "将 Guest 加入“拒绝从网络访问此计算机”权限。"
+    evaluator:
+      kind: bool_true
+      field: contains_member
+
+  - id: "W-PRIV-002"
+    name: "Guest 被拒绝本地交互登录"
+    category: "privilege_rights"
+    description: "检查 SeDenyInteractiveLogonRight 是否包含 Guest。"
+    expected: "Guest 在 SeDenyInteractiveLogonRight 中。"
+    severity: "high"
+    recommendation: "将 Guest 加入“拒绝本地登录”权限。"
+    evaluator:
+      kind: bool_true
+      field: contains_member

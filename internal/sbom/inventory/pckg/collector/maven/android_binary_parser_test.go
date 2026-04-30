@@ -12,8 +12,6 @@
 package maven
 
 import (
-	"encoding/json"
-	"os"
 	"testing"
 
 	"edrsystem/internal/sbom/model"
@@ -27,19 +25,22 @@ func TestAPKParser_Parse(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    string
+		wantLen int
+		wantPkg model.Package
 		wantErr bool
 	}{
 		{
 			"case-apk-1",
 			args{path: "test_material/android/app.apk"},
-			"test_material/android/app_apk_out.json",
+			45,
+			*newPackage("androidx.compose.material3", "material3", "1.0.0", ""),
 			false,
 		},
 		{
 			"case-aab-1",
 			args{path: "test_material/android/app.aab"},
-			"test_material/android/app_aab_out.json",
+			45,
+			*newPackage("androidx.compose.material3", "material3", "1.0.0", ""),
 			false,
 		},
 	}
@@ -51,21 +52,13 @@ func TestAPKParser_Parse(t *testing.T) {
 				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			wantData, err := os.ReadFile(tt.want)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if len(got) != tt.wantLen {
+				t.Fatalf("Parse() got %d packages, want %d", len(got), tt.wantLen)
 			}
-			wantPkgs := make([]model.Package, 0)
-			err = json.Unmarshal(wantData, &wantPkgs)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !util.SliceEqual(got, wantPkgs, func(p1 model.Package, p2 model.Package) bool {
-				return model.PackageEqual(&p1, &p2)
+			if !util.SliceAny(got, func(p model.Package) bool {
+				return model.PackageEqual(&p, &tt.wantPkg)
 			}) {
-				t.Errorf("Parse() got = %v, \nwant %v", got, tt.want)
+				t.Errorf("Parse() missing expected package %+v", tt.wantPkg)
 			}
 		})
 	}

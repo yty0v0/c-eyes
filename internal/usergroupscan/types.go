@@ -33,6 +33,7 @@ type UserGroupInfo struct {
 	GID            *int64        `json:"gid"`
 	Members        []GroupMember `json:"members"`
 	Description    *string       `json:"description"`
+	StatusText     *string       `json:"statusText"`
 }
 
 // UserGroupScanResult is the top-level user-group scan output.

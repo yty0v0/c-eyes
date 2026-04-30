@@ -209,7 +209,7 @@ func shouldIncludeProjectBaselineFile(top, rel string) bool {
 
 	base := filepath.Base(rel)
 	switch base {
-	case "go.mod", "go.sum", "c-eyes-cloud.example.json", "c-eyes-cloud.json":
+	case "go.mod", "go.sum", "c-eyes-cloud.json":
 		return true
 	case "c-eyes", "c-eyes.exe":
 		return true

@@ -20,7 +20,10 @@ const (
 	nerrSuccess         = 0
 	lgIncludeIndirect   = 0x0001
 	ufAccountDisable    = 0x0002
+	ufPasswdNotReqd     = 0x0020
+	ufPasswdCantChange  = 0x0040
 	ufLockout           = 0x0010
+	ufDontExpirePasswd  = 0x10000
 	timeQForever        = 0xFFFFFFFF
 	accountTypeUser     = 1
 )
@@ -126,15 +129,20 @@ func collectAccounts(ctx context.Context) ([]AccountInfo, error) {
 
 		status := windowsAccountStatus(user.Flags)
 		account := AccountInfo{
-			UID:         nonZeroInt64Ptr(uid),
-			GID:         nonZeroInt64Ptr(gid),
-			Groups:      allGroups,
-			Name:        nullableString(user.Name),
-			Status:      intPtr(status),
-			Home:        nullableString(user.HomeDir),
-			FullName:    nullableString(user.FullName),
-			Description: nullableString(user.Comment),
-			Type:        intPtr(accountTypeUser),
+			UID:                nonZeroInt64Ptr(uid),
+			GID:                nonZeroInt64Ptr(gid),
+			Groups:             allGroups,
+			Name:               nullableString(user.Name),
+			Status:             intPtr(status),
+			StatusText:         nullableString(windowsAccountStatusText(user.Flags)),
+			Home:               nullableString(user.HomeDir),
+			FullName:           nullableString(user.FullName),
+			Description:        nullableString(user.Comment),
+			Type:               intPtr(accountTypeUser),
+			PasswordChangeable: boolPtr(user.Flags&ufPasswdCantChange == 0),
+			PasswordExpires:    boolPtr(user.Flags&ufDontExpirePasswd == 0),
+			PasswordRequired:   boolPtr(user.Flags&ufPasswdNotReqd == 0),
+			Lockout:            boolPtr(user.Flags&ufLockout != 0),
 		}
 
 		if user.LastLogon > 0 {
@@ -340,6 +348,13 @@ func windowsAccountStatus(flags uint32) int {
 		return 1
 	}
 	return 0
+}
+
+func windowsAccountStatusText(flags uint32) string {
+	if flags&ufAccountDisable != 0 || flags&ufLockout != 0 {
+		return "Degraded"
+	}
+	return "OK"
 }
 
 func utf16PtrToString(ptr *uint16) string {

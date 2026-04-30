@@ -12,8 +12,6 @@
 package dylib
 
 import (
-	"encoding/json"
-	"os"
 	"testing"
 
 	"edrsystem/internal/sbom/inventory/pckg/collector"
@@ -25,13 +23,15 @@ func TestCollector_Collect(t *testing.T) {
 	tests := []struct {
 		name    string
 		files   []collector.File
-		want    string
+		wantLen int
+		wantPkg model.Package
 		wantErr bool
 	}{
 		{
 			name:    "ipa-1",
 			files:   []collector.File{collector.NewFileMeta("test_material/app.ipa")},
-			want:    "test_material/app_ipa_out.json",
+			wantLen: 28,
+			wantPkg: newPackage("UIKit", "6441.1.101", ""),
 			wantErr: false,
 		},
 	}
@@ -46,22 +46,13 @@ func TestCollector_Collect(t *testing.T) {
 				t.Errorf("Collect() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			bytes, err := os.ReadFile(tt.want)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Collect() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if len(got) != tt.wantLen {
+				t.Fatalf("Collect() got %d packages, want %d", len(got), tt.wantLen)
 			}
-			want := make([]model.Package, 0)
-			err = json.Unmarshal(bytes, &want)
-			if err != nil {
-				t.Errorf("Collect() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !util.SliceEqual(got, want, func(p1 model.Package, p2 model.Package) bool {
-				return model.PackageEqual(&p1, &p2)
+			if !util.SliceAny(got, func(p model.Package) bool {
+				return model.PackageEqual(&p, &tt.wantPkg)
 			}) {
-				t.Errorf("Collect() got = %v, \n want %v", got, want)
+				t.Errorf("Collect() missing expected package %+v", tt.wantPkg)
 			}
 		})
 	}

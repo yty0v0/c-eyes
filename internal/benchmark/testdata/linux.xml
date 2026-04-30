@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<result uuid="ffabcdef-2024-0808-1610-aaa150885370" ip="10.0.0.2" template_time="2024-08-08 16:10:15">
+  <security type="auto">
+    <item flag="L-001">
+      <cmd info="24-08-08">
+        <command><![CDATA[check ssh root login]]></command>
+        <value><![CDATA[pass]]></value>
+      </cmd>
+    </item>
+  </security>
+  <security type="display">
+    <item flag="L-002">
+      <cmd info="24-08-08">
+        <command><![CDATA[check ftp banner]]></command>
+        <value><![CDATA[unknown]]></value>
+      </cmd>
+    </item>
+  </security>
+</result>

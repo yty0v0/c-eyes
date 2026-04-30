@@ -67,6 +67,7 @@ func collectUserGroups(ctx context.Context) ([]UserGroupInfo, error) {
 		out = append(out, UserGroupInfo{
 			Name:        nullableString(group.Name),
 			Description: nullableString(group.Description),
+			StatusText:  strPtr("OK"),
 			Members:     members,
 		})
 	}

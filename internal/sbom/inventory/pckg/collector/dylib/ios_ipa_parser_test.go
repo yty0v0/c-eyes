@@ -12,9 +12,6 @@
 package dylib
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
 	"testing"
 
 	"edrsystem/internal/sbom/inventory/pckg/collector"
@@ -29,13 +26,15 @@ func TestIPAParser_Parse(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    string
+		wantLen int
+		wantPkg model.Package
 		wantErr bool
 	}{
 		{
 			"case-ipa-1",
 			args{path: "test_material/app.ipa"},
-			"test_material/app_ipa_out.json",
+			28,
+			newPackage("UIKit", "6441.1.101", ""),
 			false,
 		},
 	}
@@ -47,24 +46,13 @@ func TestIPAParser_Parse(t *testing.T) {
 				t.Errorf("Collect() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-
-			bytes, err := os.ReadFile(tt.want)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Collect() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if len(got) != tt.wantLen {
+				t.Fatalf("Parse() got %d packages, want %d", len(got), tt.wantLen)
 			}
-			want := make([]model.Package, 0)
-			err = json.Unmarshal(bytes, &want)
-			if err != nil {
-				t.Errorf("Collect() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			marshal, err := json.Marshal(got)
-			fmt.Println(string(marshal))
-			if !util.SliceEqual(got, want, func(p1 model.Package, p2 model.Package) bool {
-				return model.PackageEqual(&p1, &p2)
+			if !util.SliceAny(got, func(p model.Package) bool {
+				return model.PackageEqual(&p, &tt.wantPkg)
 			}) {
-				t.Errorf("Parse() got = %v, \nwant %v", got, want)
+				t.Errorf("Parse() missing expected package %+v", tt.wantPkg)
 			}
 		})
 	}

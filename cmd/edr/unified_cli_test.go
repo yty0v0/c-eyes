@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,15 +10,19 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"edrsystem/internal/benchmark"
 	"edrsystem/internal/eventlogscan"
 	"edrsystem/internal/netscan"
 	"edrsystem/internal/riskanalysis"
 	"edrsystem/internal/sbom"
+
+	"github.com/xuri/excelize/v2"
 )
 
 func TestParseGlobalCLIOptions(t *testing.T) {
@@ -615,6 +620,109 @@ func TestFlattenRowsAndHeadersMatchesLegacyHeaderCollection(t *testing.T) {
 	}
 }
 
+func TestBenchmarkRowsForDisplay(t *testing.T) {
+	t.Parallel()
+
+	rows := []benchmark.Row{
+		{
+			Host:           "host-a",
+			Template:       "windows",
+			CheckID:        "W-1",
+			CheckName:      "防火墙",
+			Category:       "security",
+			Expected:       "应启用",
+			Actual:         "已启用",
+			Status:         "pass",
+			Severity:       "high",
+			Recommendation: "启用防火墙",
+		},
+		{
+			CheckID:        "W-2",
+			CheckName:      "Guest 帐户",
+			Category:       "account",
+			Expected:       "应禁用",
+			Actual:         "已启用",
+			Status:         "fail",
+			Severity:       "medium",
+			Recommendation: "禁用 Guest 帐户",
+		},
+		{
+			Template:       "windows",
+			CheckID:        "4",
+			CheckName:      "本地用户账户信息",
+			Category:       "account",
+			Actual:         "6 local accounts",
+			Status:         "unknown",
+			StatusReason:   "informational_check",
+			Severity:       "info",
+			Recommendation: "人工核对高风险账户",
+		},
+	}
+
+	displayRows := benchmarkRowsForDisplay(rows)
+	if len(displayRows) != 3 {
+		t.Fatalf("expected 3 display rows, got %d", len(displayRows))
+	}
+	if got := displayRows[0]["检查项编号"]; got != "WIN-1" {
+		t.Fatalf("expected rule id to normalize to WIN-1 style, got %#v", got)
+	}
+	if got := displayRows[2]["检查项编号"]; got != "WIN-DISP-004" {
+		t.Fatalf("expected numeric id to normalize to WIN-DISP-004, got %#v", got)
+	}
+
+	if got := displayRows[0]["判定结果"]; got != "符合" {
+		t.Fatalf("expected pass row to map to 符合, got %#v", got)
+	}
+	if got := displayRows[0]["风险等级"]; got != "高" {
+		t.Fatalf("expected high severity to map to 高, got %#v", got)
+	}
+	if got := displayRows[0]["整改建议"]; got != nil {
+		t.Fatalf("expected pass row recommendation to be hidden, got %#v", got)
+	}
+
+	if got := displayRows[1]["判定结果"]; got != "不符合" {
+		t.Fatalf("expected fail row to map to 不符合, got %#v", got)
+	}
+	if got := displayRows[1]["整改建议"]; got != "禁用 Guest 帐户" {
+		t.Fatalf("expected fail row recommendation to be shown, got %#v", got)
+	}
+
+	if got := displayRows[2]["判定结果"]; got != "信息项" {
+		t.Fatalf("expected informational row to map to 信息项, got %#v", got)
+	}
+	if got := displayRows[2]["整改建议"]; got != nil {
+		t.Fatalf("expected informational row recommendation to be hidden, got %#v", got)
+	}
+
+	linuxRows := benchmarkRowsForDisplay([]benchmark.Row{
+		{
+			Template:     "linux",
+			CheckID:      "14",
+			CheckName:    "网络连接信息",
+			Category:     "network",
+			Status:       "unknown",
+			StatusReason: "informational_check",
+			Actual:       "netstat output",
+		},
+		{
+			Template:       "linux",
+			CheckID:        "16",
+			CheckName:      "FTP Banner 配置",
+			Category:       "service",
+			Status:         "fail",
+			Severity:       "medium",
+			Recommendation: "避免在 FTP Banner 中泄露版本和系统信息。",
+			Actual:         "vsFTPd 3.0",
+		},
+	})
+	if got := linuxRows[0]["检查项编号"]; got != "LNX-DISP-014" {
+		t.Fatalf("expected linux informational id to normalize to LNX-DISP-014, got %#v", got)
+	}
+	if got := linuxRows[1]["检查项编号"]; got != "LNX-DISP-016" {
+		t.Fatalf("expected linux numeric rule id to normalize to LNX-DISP-016 at export layer, got %#v", got)
+	}
+}
+
 func TestRunUnifiedCLILegacyCommandRejected(t *testing.T) {
 	t.Parallel()
 
@@ -686,6 +794,23 @@ func TestRunUnifiedCLIGlobalHelpForNetscanIgnoresInvalidArgs(t *testing.T) {
 	}
 	if !strings.Contains(output, "c-eyes netscan - Run an internal network discovery task") {
 		t.Fatalf("expected netscan help output, got: %s", output)
+	}
+	if strings.Contains(output, "invalid argument:") {
+		t.Fatalf("did not expect argument error in global help mode, got: %s", output)
+	}
+}
+
+func TestRunUnifiedCLIGlobalHelpForBenchmarkIgnoresInvalidArgs(t *testing.T) {
+	code, output := runUnifiedCLIWithCapturedStderr(t, []string{
+		"-h",
+		"benchmark",
+		"--template", "not-valid",
+	})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (output: %s)", code, output)
+	}
+	if !strings.Contains(output, "c-eyes benchmark - Run a security baseline benchmark task") {
+		t.Fatalf("expected benchmark help output, got: %s", output)
 	}
 	if strings.Contains(output, "invalid argument:") {
 		t.Fatalf("did not expect argument error in global help mode, got: %s", output)
@@ -938,6 +1063,55 @@ func TestRunUnifiedCLIRootHelpIncludesSBOM(t *testing.T) {
 	}
 }
 
+func TestRunUnifiedCLIRootHelpIncludesBenchmark(t *testing.T) {
+	code, output := runUnifiedCLIWithCapturedStderr(t, []string{"-h"})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (output: %s)", code, output)
+	}
+	if !strings.Contains(output, "benchmark") {
+		t.Fatalf("expected root help to include benchmark command, got: %s", output)
+	}
+}
+
+func TestRunUnifiedCLIBenchmarkHelp(t *testing.T) {
+	code, output := runUnifiedCLIWithCapturedStderr(t, []string{"benchmark", "-h"})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (output: %s)", code, output)
+	}
+	if !strings.Contains(output, "c-eyes benchmark - Run a security baseline benchmark task") {
+		t.Fatalf("unexpected help output: %s", output)
+	}
+	if !strings.Contains(output, "--template <name>") || !strings.Contains(output, "auto|windows|linux|euleros|kylin") {
+		t.Fatalf("expected template option in help output: %s", output)
+	}
+	if !strings.Contains(output, "does not support -r/--riskanalyze") {
+		t.Fatalf("expected collection-only note in benchmark help output: %s", output)
+	}
+	if !strings.Contains(output, "requires administrator privilege on Windows") {
+		t.Fatalf("expected privilege note in benchmark help output: %s", output)
+	}
+}
+
+func TestRunUnifiedCLIBenchmarkRejectsRiskAnalyze(t *testing.T) {
+	code, output := runUnifiedCLIWithCapturedStderr(t, []string{"benchmark", "-r"})
+	if code != 2 {
+		t.Fatalf("expected exit code 2, got %d (output: %s)", code, output)
+	}
+	if !strings.Contains(output, "does not support -r/--riskanalyze") {
+		t.Fatalf("unexpected output: %s", output)
+	}
+}
+
+func TestRunUnifiedCLIBenchmarkRejectsRiskOnlyFlag(t *testing.T) {
+	code, output := runUnifiedCLIWithCapturedStderr(t, []string{"benchmark", "-cloud-upload"})
+	if code != 2 {
+		t.Fatalf("expected exit code 2, got %d (output: %s)", code, output)
+	}
+	if !strings.Contains(output, "does not support risk-analysis option") {
+		t.Fatalf("unexpected output: %s", output)
+	}
+}
+
 func TestRunUnifiedCLISBOMHelp(t *testing.T) {
 	code, output := runUnifiedCLIWithCapturedStderr(t, []string{"sbom", "-h"})
 	if code != 0 {
@@ -1176,6 +1350,42 @@ func TestParseSBOMArgsRejectsUnsupportedFormat(t *testing.T) {
 		t.Fatal("expected unsupported format error")
 	}
 	if !strings.Contains(err.Error(), "xspdx-json|spdx-json") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseBenchmarkArgsDefaultsToAuto(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseBenchmarkArgs([]string{})
+	if err != nil {
+		t.Fatalf("parseBenchmarkArgs returned error: %v", err)
+	}
+	if parsed.Template != benchmark.TemplateAuto {
+		t.Fatalf("expected template %q, got %q", benchmark.TemplateAuto, parsed.Template)
+	}
+}
+
+func TestParseBenchmarkArgsAcceptsTemplate(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseBenchmarkArgs([]string{"--template", "kylin"})
+	if err != nil {
+		t.Fatalf("parseBenchmarkArgs returned error: %v", err)
+	}
+	if parsed.Template != benchmark.TemplateKylin {
+		t.Fatalf("expected template %q, got %q", benchmark.TemplateKylin, parsed.Template)
+	}
+}
+
+func TestParseBenchmarkArgsRejectsInvalidTemplate(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseBenchmarkArgs([]string{"--template", "bad"})
+	if err == nil {
+		t.Fatal("expected invalid template error")
+	}
+	if !strings.Contains(err.Error(), "auto|windows|linux|euleros|kylin") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1441,6 +1651,289 @@ func TestEmitOutputEventlogEnvelopeAcrossFormats(t *testing.T) {
 	}
 	if info, err := os.Stat(xlsxPath); err != nil || info.Size() == 0 {
 		t.Fatalf("expected xlsx output file, err=%v size=%d", err, fileSizeOrZero(info))
+	}
+}
+
+func TestEmitOutputBenchmarkCSVWritesSummarySidecar(t *testing.T) {
+	t.Parallel()
+
+	payload := benchmark.ScanResult{
+		Template: "linux",
+		Summary: benchmark.Summary{
+			Total:          4,
+			Pass:           2,
+			Fail:           1,
+			Unknown:        1,
+			Evaluated:      3,
+			ComplianceRate: 2.0 / 3.0,
+			CoverageRate:   0.75,
+			UnknownRate:    0.25,
+		},
+		Rows: []benchmark.Row{
+			{
+				Template:  "linux",
+				CheckID:   "1",
+				CheckName: "1",
+				Category:  "display",
+				Status:    "pass",
+				Actual:    "ok",
+				Evidence:  "ok",
+				Command:   "uname -a",
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "benchmark.csv")
+	if err := emitOutput(payload, csvPath); err != nil {
+		t.Fatalf("emitOutput csv returned error: %v", err)
+	}
+
+	csvBytes, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatalf("read benchmark csv failed: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		if !bytes.HasPrefix(csvBytes, utf8BOM) {
+			t.Fatalf("expected UTF-8 BOM prefix for benchmark csv on Windows")
+		}
+	}
+
+	summaryPath := filepath.Join(dir, "benchmark.summary.csv")
+	if info, err := os.Stat(summaryPath); err != nil || info.Size() == 0 {
+		t.Fatalf("expected benchmark summary sidecar, err=%v size=%d", err, fileSizeOrZero(info))
+	}
+
+	f, err := os.Open(summaryPath)
+	if err != nil {
+		t.Fatalf("open summary sidecar failed: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	content, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("read summary sidecar bytes failed: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		if !bytes.HasPrefix(content, utf8BOM) {
+			t.Fatalf("expected UTF-8 BOM prefix for benchmark summary csv on Windows")
+		}
+		content = bytes.TrimPrefix(content, utf8BOM)
+	}
+
+	rows, err := csv.NewReader(bytes.NewReader(content)).ReadAll()
+	if err != nil {
+		t.Fatalf("read summary sidecar failed: %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected summary rows, got: %#v", rows)
+	}
+	if !reflect.DeepEqual(rows[0], []string{"指标", "原始值", "展示值"}) {
+		t.Fatalf("unexpected summary header: %#v", rows[0])
+	}
+
+	metrics := map[string][]string{}
+	for _, row := range rows[1:] {
+		if len(row) < 3 {
+			t.Fatalf("invalid summary row: %#v", row)
+		}
+		metrics[row[0]] = row[1:3]
+	}
+	if got := metrics["可判定项"]; !reflect.DeepEqual(got, []string{"3", "3"}) {
+		t.Fatalf("unexpected evaluated row: %#v", got)
+	}
+	if got := metrics["判定覆盖率"]; !reflect.DeepEqual(got, []string{"0.750000", "75.00%"}) {
+		t.Fatalf("unexpected coverage row: %#v", got)
+	}
+	if got := metrics["信息项占比"]; !reflect.DeepEqual(got, []string{"0.250000", "25.00%"}) {
+		t.Fatalf("unexpected unknown row: %#v", got)
+	}
+
+	mainCSVBytes, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatalf("read benchmark csv main file failed: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		mainCSVBytes = bytes.TrimPrefix(mainCSVBytes, utf8BOM)
+	}
+	mainRows, err := csv.NewReader(bytes.NewReader(mainCSVBytes)).ReadAll()
+	if err != nil {
+		t.Fatalf("read benchmark main csv failed: %v", err)
+	}
+	if len(mainRows) < 2 {
+		t.Fatalf("expected benchmark main csv rows, got %#v", mainRows)
+	}
+	wantHeaders := []string{"检查项编号", "检查项名称", "分类", "基线要求", "实际结果", "判定结果", "风险等级", "证据摘要"}
+	if !reflect.DeepEqual(mainRows[0], wantHeaders) {
+		t.Fatalf("unexpected benchmark main csv header: got=%#v want=%#v", mainRows[0], wantHeaders)
+	}
+}
+
+func TestEmitOutputBenchmarkJSONUsesUTF8BOMOnWindows(t *testing.T) {
+	t.Parallel()
+
+	payload := benchmark.ScanResult{
+		Template: "windows",
+		Summary: benchmark.Summary{
+			Total: 1,
+		},
+		Rows: []benchmark.Row{
+			{
+				Template:  "windows",
+				CheckID:   "1",
+				CheckName: "1",
+				Status:    "unknown",
+				Actual:    "Microsoft Windows 10 家庭中文版",
+				Evidence:  "Microsoft Windows 10 家庭中文版",
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	jsonPath := filepath.Join(dir, "benchmark.json")
+	if err := emitOutput(payload, jsonPath); err != nil {
+		t.Fatalf("emitOutput json returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("read benchmark json failed: %v", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		if !bytes.HasPrefix(data, utf8BOM) {
+			t.Fatalf("expected UTF-8 BOM prefix for benchmark json on Windows")
+		}
+		data = bytes.TrimPrefix(data, utf8BOM)
+	} else if bytes.HasPrefix(data, utf8BOM) {
+		t.Fatalf("did not expect UTF-8 BOM prefix outside Windows")
+	}
+
+	var parsed benchmark.ScanResult
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("benchmark json unmarshal failed: %v", err)
+	}
+	if len(parsed.Rows) != 1 || parsed.Rows[0].Actual != "Microsoft Windows 10 家庭中文版" {
+		t.Fatalf("unexpected benchmark json payload: %#v", parsed)
+	}
+}
+
+func TestPrintBenchmarkSummaryToTerminal(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := newTerminalProgressWithPin(&out, "benchmark", false)
+
+	printBenchmarkSummary(progress, benchmark.ScanResult{
+		Template: "linux",
+		Summary: benchmark.Summary{
+			Total:          4,
+			Pass:           2,
+			Fail:           0,
+			Unknown:        2,
+			Evaluated:      2,
+			ComplianceRate: 1.0,
+			CoverageRate:   0.5,
+			UnknownRate:    0.5,
+		},
+	})
+
+	got := out.String()
+	for _, want := range []string{
+		"benchmark summary:",
+		"template         linux",
+		"metric           value      display",
+		"total",
+		"compliance_rate",
+		"100.00%",
+		"50.00%",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in summary output, got: %s", want, got)
+		}
+	}
+}
+
+func TestEmitOutputBenchmarkXLSXAddsSummarySheet(t *testing.T) {
+	t.Parallel()
+
+	payload := benchmark.ScanResult{
+		Template: "linux",
+		Summary: benchmark.Summary{
+			Total:          4,
+			Pass:           2,
+			Fail:           1,
+			Unknown:        1,
+			Evaluated:      3,
+			ComplianceRate: 2.0 / 3.0,
+			CoverageRate:   0.75,
+			UnknownRate:    0.25,
+		},
+		Rows: []benchmark.Row{
+			{
+				Template:  "linux",
+				CheckID:   "1",
+				CheckName: "1",
+				Category:  "display",
+				Status:    "pass",
+				Actual:    "ok",
+				Evidence:  "ok",
+				Command:   "uname -a",
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	xlsxPath := filepath.Join(dir, "benchmark.xlsx")
+	if err := emitOutput(payload, xlsxPath); err != nil {
+		t.Fatalf("emitOutput xlsx returned error: %v", err)
+	}
+
+	file, err := excelize.OpenFile(xlsxPath)
+	if err != nil {
+		t.Fatalf("open xlsx failed: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	sheets := file.GetSheetList()
+	if !containsString(sheets, "results") || !containsString(sheets, "summary") {
+		t.Fatalf("expected results+summary sheets, got: %#v", sheets)
+	}
+
+	if metric, _ := file.GetCellValue("summary", "A6"); metric != "可判定项" {
+		t.Fatalf("unexpected summary metric A6: %q", metric)
+	}
+	if value, _ := file.GetCellValue("summary", "B6"); value != "3" {
+		t.Fatalf("unexpected summary value B6: %q", value)
+	}
+	if display, _ := file.GetCellValue("summary", "C7"); display != "66.67%" {
+		t.Fatalf("unexpected summary display C7: %q", display)
+	}
+	activeSheetName := file.GetSheetName(file.GetActiveSheetIndex())
+	if activeSheetName != "results" {
+		t.Fatalf("expected active sheet to be results, got: %q", activeSheetName)
+	}
+}
+
+func TestEmitOutputNonBenchmarkCSVDoesNotWriteSummarySidecar(t *testing.T) {
+	t.Parallel()
+
+	payload := scanAggregateResult{
+		Total: 1,
+		Rows: []map[string]any{
+			{"module": "process", "name": "cmd.exe"},
+		},
+	}
+
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "hostscan.csv")
+	if err := emitOutput(payload, csvPath); err != nil {
+		t.Fatalf("emitOutput csv returned error: %v", err)
+	}
+
+	summaryPath := filepath.Join(dir, "hostscan.summary.csv")
+	if _, err := os.Stat(summaryPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no summary sidecar for non-benchmark csv, err=%v", err)
 	}
 }
 
@@ -2204,6 +2697,15 @@ func runUnifiedCLIWithCapturedStderr(t *testing.T, args []string) (int, string) 
 	_ = reader.Close()
 	os.Stderr = originalStderr
 	return code, output
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func fileSizeOrZero(info os.FileInfo) int64 {

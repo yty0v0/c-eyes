@@ -201,7 +201,7 @@ else
   echo "Rules copy disabled (using embedded rules by default)."
 fi
 
-CLOUD_CFG_SRC="$ROOT/c-eyes-cloud.example.json"
+CLOUD_CFG_SRC="$ROOT/c-eyes-cloud.json"
 if [[ -f "$CLOUD_CFG_SRC" ]]; then
   cp -a "$CLOUD_CFG_SRC" "$OUT_DIR/c-eyes-cloud.json"
   echo "Copied: c-eyes-cloud.json (API key template)"

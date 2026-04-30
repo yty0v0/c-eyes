@@ -55,6 +55,7 @@ type AccountInfo struct {
 	Groups               []string        `json:"groups"`
 	Name                 *string         `json:"name"`
 	Status               *int            `json:"status"`
+	StatusText           *string         `json:"statusText"`
 	Home                 *string         `json:"home"`
 	Shell                *string         `json:"shell"`
 	LoginStatus          *int            `json:"loginStatus"`
@@ -73,6 +74,10 @@ type AccountInfo struct {
 	Root                 *bool           `json:"root"`
 	Description          *string         `json:"description"`
 	Type                 *int            `json:"type"`
+	PasswordChangeable   *bool           `json:"passwordChangeable"`
+	PasswordExpires      *bool           `json:"passwordExpires"`
+	PasswordRequired     *bool           `json:"passwordRequired"`
+	Lockout              *bool           `json:"lockout"`
 	LastChangPwdTime     *time.Time      `json:"lastChangPwdTime"`
 	AccountLoginType     *int            `json:"accountLoginType"`
 	InteractiveLoginType *int            `json:"interactiveLoginType"`

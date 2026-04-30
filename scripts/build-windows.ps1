@@ -132,7 +132,7 @@ if ($CopyRules) {
     Write-Host "Rules copy disabled (using embedded rules by default)."
 }
 
-$cloudTemplate = Join-Path $root "c-eyes-cloud.example.json"
+$cloudTemplate = Join-Path $root "c-eyes-cloud.json"
 if (Test-Path $cloudTemplate) {
     Copy-Item $cloudTemplate (Join-Path $outDir "c-eyes-cloud.json") -Force
 Write-Host "Copied: c-eyes-cloud.json (API key template)"

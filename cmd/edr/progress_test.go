@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -163,8 +162,78 @@ func TestIsPinnedProgressEnabledEnvOverride(t *testing.T) {
 
 func TestIsPinnedProgressEnabledDefaultPolicy(t *testing.T) {
 	t.Setenv("CEYES_PROGRESS_PINNED", "")
-	want := runtime.GOOS != "windows"
+	want := true
 	if got := isPinnedProgressEnabled(); got != want {
 		t.Fatalf("unexpected default pinned policy: got=%v want=%v", got, want)
+	}
+}
+
+func TestProgressPinnedFallbackEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		term       string
+		goos       string
+		charDevice bool
+		want       bool
+	}{
+		{name: "unix interactive tty", term: "xterm-256color", goos: "linux", charDevice: true, want: true},
+		{name: "unix dumb tty", term: "dumb", goos: "linux", charDevice: true, want: false},
+		{name: "unix empty term", term: "", goos: "linux", charDevice: true, want: false},
+		{name: "unix redirected file", term: "xterm-256color", goos: "linux", charDevice: false, want: false},
+		{name: "windows char device", term: "xterm-256color", goos: "windows", charDevice: true, want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := progressPinnedFallbackEnabled(tt.term, tt.goos, tt.charDevice); got != tt.want {
+				t.Fatalf("progressPinnedFallbackEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTerminalProgressPinnedAccountsForWrappedLogLines(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := newTerminalProgressWithPin(&out, "filescan", true)
+	progress.termWidth = 20
+	progress.Update(1, 2, "filter")
+	progress.PrintLine("[WARN] filescan target /proc/123456/fd/8 failed at collect_targets: no such file or directory")
+	progress.Update(2, 2, "deep_scan")
+	progress.Done()
+
+	got := out.String()
+	if !strings.Contains(got, "100% (2/2)") {
+		t.Fatalf("expected final pinned progress update, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[6A") || !strings.Contains(got, "\x1b[6B\r") {
+		t.Fatalf("expected wrapped log line to increase cursor movement, got %q", got)
+	}
+}
+
+func TestTerminalProgressBottomPinKeepsProgressAsLastLine(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := newTerminalProgressWithBottomPin(&out, "filescan", true)
+	progress.Update(1, 2, "filter")
+	progress.PrintLine("[WARN] filescan target /proc/123/fd/8 failed at collect_targets: no such file or directory")
+	progress.Update(2, 2, "deep_scan")
+	progress.Done()
+
+	got := out.String()
+	if !strings.Contains(got, "[WARN] filescan target /proc/123/fd/8 failed at collect_targets: no such file or directory\n\rfilescan [") {
+		t.Fatalf("expected warning line followed by redrawn bottom progress, got %q", got)
+	}
+	if strings.Contains(got, "A") && strings.Contains(got, "\x1b[") && strings.Contains(got, "B\r") {
+		t.Fatalf("expected bottom-pinned mode to avoid cursor up/down sequences, got %q", got)
+	}
+	if !strings.Contains(got, "100% (2/2)") {
+		t.Fatalf("expected final bottom-pinned progress update, got %q", got)
 	}
 }

@@ -1,0 +1,163 @@
+version: 1
+template: euleros
+checks:
+  - source_id: "0"
+    id: "EUL-KERNEL-001"
+    name: "系统内核信息"
+    category: "system"
+    description: "采集当前 EulerOS 内核信息。"
+    expected: "系统内核版本符合组织支持基线。"
+    severity: "info"
+    recommendation: "核查内核版本与补丁支持状态。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "1"
+    id: "EUL-ACC-001"
+    name: "本地账户信息"
+    category: "account"
+    description: "采集 /etc/passwd 内容。"
+    expected: "至少存在 1 个本地账户。"
+    severity: "low"
+    recommendation: "核查异常账户和高权限账户。"
+    evaluator:
+      kind: int_gte
+      field: account_count
+      min: 1
+  - source_id: "2"
+    id: "EUL-GRP-001"
+    name: "本地用户组信息"
+    category: "account"
+    description: "采集 /etc/group 内容。"
+    expected: "至少存在 1 个本地用户组。"
+    severity: "low"
+    recommendation: "核查高权限组成员和例外授权。"
+    evaluator:
+      kind: int_gte
+      field: group_count
+      min: 1
+  - source_id: "3"
+    id: "EUL-LOG-001"
+    name: "系统日志摘要"
+    category: "audit"
+    description: "采集系统日志摘要。"
+    expected: "系统日志摘要可读取。"
+    severity: "medium"
+    recommendation: "核查异常报错与安全事件线索。"
+    evaluator:
+      kind: int_gte
+      field: log_line_count
+      min: 1
+  - source_id: "4"
+    id: "EUL-SVC-001"
+    name: "系统服务信息"
+    category: "service"
+    description: "采集 chkconfig 服务启用状态。"
+    expected: "系统服务信息可读取。"
+    severity: "medium"
+    recommendation: "核查不必要服务和高风险远程服务。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "5"
+    id: "EUL-TERM-001"
+    name: "安全终端配置"
+    category: "system"
+    description: "采集 /etc/securetty 配置。"
+    expected: "root 登录终端范围受控。"
+    severity: "medium"
+    recommendation: "限制 root 可直接登录的终端范围。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "6"
+    id: "EUL-NET-001"
+    name: "网络接口信息"
+    category: "network"
+    description: "采集 ifconfig 输出。"
+    expected: "活动网络接口信息可读取。"
+    severity: "medium"
+    recommendation: "核查异常网卡与多余地址。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "7"
+    id: "EUL-META-001"
+    name: "临时工件清理"
+    category: "meta"
+    description: "记录 benchmark 临时工件清理状态。"
+    expected: "临时工件已安全清理。"
+    severity: "low"
+    recommendation: "确认扫描过程未残留敏感中间文件。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "8"
+    id: "EUL-LOGIN-001"
+    name: "登录日志信息"
+    category: "audit"
+    description: "采集最近登录记录。"
+    expected: "最近登录记录可读取。"
+    severity: "medium"
+    recommendation: "核查异常登录时段与来源。"
+    evaluator:
+      kind: int_gte
+      field: entry_count
+      min: 1
+  - source_id: "9"
+    id: "EUL-SSH-001"
+    name: "SSH 访问控制配置"
+    category: "service"
+    description: "采集 sshd_config 中 AllowUsers/DenyUsers 配置。"
+    expected: "SSH 访问控制已配置。"
+    severity: "medium"
+    recommendation: "配置 AllowUsers 或 DenyUsers 控制 SSH 登录范围。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "10"
+    id: "EUL-FS-001"
+    name: "磁盘使用信息"
+    category: "filesystem"
+    description: "采集磁盘使用情况。"
+    expected: "最高磁盘使用率不高于 90%。"
+    severity: "medium"
+    recommendation: "核查关键挂载点容量和异常分区。"
+    evaluator:
+      kind: int_lte
+      field: highest_used_percent
+      max: 90
+  - source_id: "11"
+    id: "EUL-LOGIN-002"
+    name: "登录失败日志"
+    category: "audit"
+    description: "采集最近失败登录记录。"
+    expected: "失败登录记录可读取。"
+    severity: "medium"
+    recommendation: "核查暴力破解和异常来源。"
+    evaluator:
+      kind: int_gte
+      field: entry_count
+      min: 1
+  - source_id: "18"
+    id: "EUL-REL-001"
+    name: "发行版版本信息"
+    category: "system"
+    description: "采集 EulerOS 版本信息。"
+    expected: "发行版版本信息可识别。"
+    severity: "medium"
+    recommendation: "核查 EulerOS 版本与补丁支持周期。"
+    evaluator:
+      kind: bool_true
+      field: present
+  - source_id: "21"
+    id: "EUL-RPM-001"
+    name: "已安装 RPM 软件包"
+    category: "software"
+    description: "采集 RPM 软件包列表摘要。"
+    expected: "已安装 RPM 软件包信息可读取。"
+    severity: "medium"
+    recommendation: "核查异常软件包和不必要组件。"
+    evaluator:
+      kind: bool_true
+      field: present

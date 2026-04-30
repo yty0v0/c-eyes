@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"edrsystem/internal/accountscan"
+	"edrsystem/internal/benchmark"
 	"edrsystem/internal/databasescan"
 	"edrsystem/internal/environmentscan"
 	"edrsystem/internal/eventlogscan"
@@ -82,6 +83,8 @@ const (
 	xlsxMaxRows                  = 1048576
 	xlsxMaxColumns               = 16384
 )
+
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
 var autoResultIndexPattern = regexp.MustCompile(`^result([0-9]+)\.xlsx$`)
 var autoJSONResultIndexPattern = regexp.MustCompile(`^result([0-9]+)\.json$`)
@@ -155,6 +158,12 @@ type sbomParseResult struct {
 	RiskArgs []string
 }
 
+type benchmarkParseResult struct {
+	ShowHelp bool
+	Template benchmark.Template
+	RiskArgs []string
+}
+
 func runUnifiedCLI(rawArgs []string) int {
 	opts, remaining, err := parseGlobalCLIOptions(rawArgs)
 	if err != nil {
@@ -182,6 +191,8 @@ func runUnifiedCLI(rawArgs []string) int {
 		return runHostscanCLI(remaining[1:], opts)
 	case "filescan":
 		return runFilescanCLI(remaining[1:], opts)
+	case "benchmark":
+		return runBenchmarkCLI(remaining[1:], opts)
 	case "sbom":
 		return runSBOMCLI(remaining[1:], opts)
 	case "eventlog":
@@ -395,7 +406,7 @@ func runFilescanCLI(args []string, global globalCLIOptions) int {
 		records []riskanalysis.ScanRecord
 	)
 
-	progress := newTerminalProgressWithPin(os.Stderr, "filescan", shouldPinFilescanProgress(os.Stderr))
+	progress := newTerminalProgressWithBottomPin(os.Stderr, "filescan", shouldPinFilescanProgress(os.Stderr))
 	defer progress.Done()
 
 	if parsed.IsLocalMode {
@@ -458,6 +469,69 @@ func runFilescanCLI(args []string, global globalCLIOptions) int {
 	}
 
 	if err := emitOutput(agg, global.OutputPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func runBenchmarkCLI(args []string, global globalCLIOptions) int {
+	if global.ShowHelp && len(args) == 0 {
+		benchmarkUsage()
+		return 0
+	}
+	if global.RiskEnabled {
+		fmt.Fprintln(os.Stderr, "invalid argument: benchmark is collection-only and does not support -r/--riskanalyze")
+		return 2
+	}
+
+	_, riskArgs, splitErr := splitRiskArgs(args)
+	if splitErr != nil {
+		fmt.Fprintln(os.Stderr, splitErr)
+		return 2
+	}
+	if len(riskArgs) > 0 {
+		name, _ := splitFlagToken(strings.TrimSpace(riskArgs[0]))
+		if !strings.HasPrefix(name, "-") {
+			name = strings.TrimSpace(riskArgs[0])
+		}
+		fmt.Fprintf(os.Stderr, "invalid argument: benchmark does not support risk-analysis option: %s\n", name)
+		return 2
+	}
+
+	parseArgs := args
+	if global.ShowHelp {
+		// Global -h is consumed before subcommand parsing; append local help marker
+		// so benchmark parser can short-circuit strict argument validation.
+		parseArgs = append(append([]string{}, args...), "-h")
+	}
+	parsed, err := parseBenchmarkArgs(parseArgs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if global.ShowHelp || parsed.ShowHelp {
+		benchmarkUsage()
+		return 0
+	}
+
+	progress := newTerminalProgress(os.Stderr, "benchmark")
+	defer progress.Done()
+
+	result, err := benchmark.Scan(context.Background(), benchmark.ScanOptions{
+		Template: parsed.Template,
+		Progress: scopedProgressUpdate(progress, "scan"),
+	})
+	if err != nil {
+		progress.PrintLine(err.Error())
+		return 1
+	}
+
+	printBenchmarkSummary(progress, result)
+
+	// Clear the in-place progress row before emitOutput writes generated file hints.
+	progress.PrintLine("")
+	if err := emitOutput(result, global.OutputPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -722,6 +796,46 @@ func parseSBOMArgs(args []string) (sbomParseResult, error) {
 		return result, fmt.Errorf("invalid argument: -p/--path is required for sbom")
 	}
 	result.Format = normalizedFormat
+	return result, nil
+}
+
+func parseBenchmarkArgs(args []string) (benchmarkParseResult, error) {
+	var result benchmarkParseResult
+
+	scanArgs, riskArgs, err := splitRiskArgs(args)
+	if err != nil {
+		return result, err
+	}
+	result.RiskArgs = riskArgs
+	if err := rejectLegacyOutputFlags(scanArgs); err != nil {
+		return result, err
+	}
+
+	for _, arg := range scanArgs {
+		if arg == "-h" || arg == "--help" {
+			result.ShowHelp = true
+			return result, nil
+		}
+	}
+
+	fs := flag.NewFlagSet("benchmark", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	templateVal := string(benchmark.TemplateAuto)
+	fs.StringVar(&templateVal, "template", string(benchmark.TemplateAuto), "benchmark template: auto|windows|linux|euleros|kylin")
+
+	if err := fs.Parse(scanArgs); err != nil {
+		return result, fmt.Errorf("invalid argument: %v", err)
+	}
+	if len(fs.Args()) > 0 {
+		return result, fmt.Errorf("invalid argument: unknown argument: %s", fs.Args()[0])
+	}
+
+	normalized, err := benchmark.NormalizeTemplate(templateVal)
+	if err != nil {
+		return result, err
+	}
+	result.Template = normalized
 	return result, nil
 }
 
@@ -3370,12 +3484,6 @@ type outputWriteSet struct {
 
 type permissionFallbackPrompt func(outputPath string, writeErr error, stdin io.Reader, stderr io.Writer) (bool, error)
 
-var defaultOutputWriters = outputWriteSet{
-	json: writeJSONFile,
-	csv:  writeCSVFile,
-	xlsx: writeXLSXFile,
-}
-
 var defaultPermissionFallbackPrompt permissionFallbackPrompt = func(outputPath string, writeErr error, stdin io.Reader, stderr io.Writer) (bool, error) {
 	fmt.Fprintf(stderr, "[ERROR] Cannot write output file: %s\n", outputPath)
 	fmt.Fprintf(stderr, "        Reason: %s\n", compactWriteErrorMessage(outputPath, writeErr))
@@ -3437,7 +3545,7 @@ func compactScanTargetErrorMessage(targetPath string, scanErr error) string {
 }
 
 func emitOutput(payload any, outputPath string) error {
-	return emitOutputWithPrompt(payload, outputPath, defaultOutputWriters, os.Stdout, os.Stderr, os.Stdin, defaultPermissionFallbackPrompt)
+	return emitOutputWithPrompt(payload, outputPath, outputWriteSet{}, os.Stdout, os.Stderr, os.Stdin, defaultPermissionFallbackPrompt)
 }
 
 func emitOutputWithWriteSet(payload any, outputPath string, writers outputWriteSet, stdout io.Writer, stderr io.Writer) error {
@@ -3451,6 +3559,7 @@ func emitOutputWithPrompt(payload any, outputPath string, writers outputWriteSet
 	if stderr == nil {
 		stderr = io.Discard
 	}
+	defaultCSVWriterUsed := writers.csv == nil
 	if writers.json == nil {
 		writers.json = writeJSONFile
 	}
@@ -3488,13 +3597,31 @@ func emitOutputWithPrompt(payload any, outputPath string, writers outputWriteSet
 		if err != nil {
 			return err
 		}
-		writeErr = writers.csv(resolvedOutputPath, rows)
+		if shouldWriteUTF8BOMForBenchmarkFiles(payload) && defaultCSVWriterUsed {
+			writeErr = writeCSVFileWithBOM(resolvedOutputPath, rows)
+		} else {
+			writeErr = writers.csv(resolvedOutputPath, rows)
+		}
+		if writeErr == nil {
+			summaryPath, summaryErr := writeBenchmarkSummaryCSVSidecar(resolvedOutputPath, payload)
+			if summaryErr != nil {
+				return summaryErr
+			}
+			if strings.TrimSpace(summaryPath) != "" {
+				writtenPaths = append(writtenPaths, summaryPath)
+			}
+		}
 	case "xlsx":
 		rows, err := payloadToRows(payload)
 		if err != nil {
 			return err
 		}
 		writtenPaths, writeErr = writeShardedXLSXFiles(resolvedOutputPath, rows, xlsxMaxRows-1, writers.xlsx)
+		if writeErr == nil {
+			if summaryErr := appendBenchmarkSummarySheetToXLSXFiles(writtenPaths, payload); summaryErr != nil {
+				return summaryErr
+			}
+		}
 	default:
 		return fmt.Errorf("invalid argument: unsupported output format")
 	}
@@ -3722,6 +3849,11 @@ func writeJSONFile(path string, payload any) error {
 	}
 	defer func() { _ = file.Close() }()
 
+	if shouldWriteUTF8BOMForBenchmarkFiles(payload) {
+		if _, err := file.Write(utf8BOM); err != nil {
+			return err
+		}
+	}
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)
@@ -3742,6 +3874,13 @@ func payloadToRows(payload any) ([]map[string]any, error) {
 		return append([]map[string]any{}, v.Rows...), nil
 	case []map[string]any:
 		return append([]map[string]any{}, v...), nil
+	case benchmark.ScanResult:
+		return benchmarkRowsForDisplay(v.Rows), nil
+	case *benchmark.ScanResult:
+		if v == nil {
+			return nil, nil
+		}
+		return benchmarkRowsForDisplay(v.Rows), nil
 	}
 
 	rv := reflect.ValueOf(payload)
@@ -3771,12 +3910,186 @@ func payloadToRows(payload any) ([]map[string]any, error) {
 }
 
 func writeCSVFile(path string, rows []map[string]any) error {
+	return writeCSVFileInternal(path, rows, false)
+}
+
+func benchmarkRowsForDisplay(rows []benchmark.Row) []map[string]any {
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		displayStatus := benchmarkDisplayStatus(row.Status, row.StatusReason)
+		evidenceSummary := benchmarkEvidenceSummary(row.Actual, row.Evidence)
+		item := map[string]any{
+			"检查项编号": benchmarkDisplayCheckID(row.Template, row.CheckID, row.StatusReason),
+			"检查项名称": strings.TrimSpace(row.CheckName),
+			"分类":    benchmarkDisplayCategory(row.Category),
+			"基线要求":  strings.TrimSpace(row.Expected),
+			"实际结果":  strings.TrimSpace(row.Actual),
+			"判定结果":  displayStatus,
+			"风险等级":  benchmarkDisplaySeverity(row.Severity),
+			"证据摘要":  evidenceSummary,
+		}
+		if recommendation := benchmarkDisplayRecommendation(row.Recommendation, displayStatus); recommendation != "" {
+			item["整改建议"] = recommendation
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func benchmarkDisplayCheckID(template, rawID, statusReason string) string {
+	rawID = strings.TrimSpace(rawID)
+	if rawID == "" {
+		return ""
+	}
+	prefix := benchmarkTemplateCode(template)
+	if prefix == "" {
+		prefix = "GEN"
+	}
+	if isDigitsOnly(rawID) {
+		return fmt.Sprintf("%s-DISP-%03s", prefix, rawID)
+	}
+	if strings.HasPrefix(strings.ToUpper(rawID), "W-") && prefix == "WIN" {
+		return "WIN-" + rawID[2:]
+	}
+	return rawID
+}
+
+func benchmarkTemplateCode(template string) string {
+	switch benchmarkNormalizeLowerTrim(template) {
+	case "windows":
+		return "WIN"
+	case "linux":
+		return "LNX"
+	case "euleros":
+		return "EUL"
+	case "kylin":
+		return "KYL"
+	default:
+		return ""
+	}
+}
+
+func isDigitsOnly(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func benchmarkNormalizeLowerTrim(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func benchmarkDisplayStatus(status, reason string) string {
+	switch benchmarkNormalizeLowerTrim(status) {
+	case "pass":
+		return "符合"
+	case "fail":
+		return "不符合"
+	default:
+		switch benchmarkNormalizeLowerTrim(reason) {
+		case "informational_check":
+			return "信息项"
+		case "execution_error":
+			return "检查失败"
+		default:
+			return "待确认"
+		}
+	}
+}
+
+func benchmarkDisplaySeverity(value string) string {
+	switch benchmarkNormalizeLowerTrim(value) {
+	case "high":
+		return "高"
+	case "medium":
+		return "中"
+	case "low":
+		return "低"
+	case "info":
+		return "提示"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func benchmarkDisplayCategory(value string) string {
+	switch benchmarkNormalizeLowerTrim(value) {
+	case "security":
+		return "安全配置"
+	case "password_policy":
+		return "密码策略"
+	case "lockout_policy":
+		return "锁定策略"
+	case "account":
+		return "账户管理"
+	case "service":
+		return "系统服务"
+	case "system":
+		return "系统信息"
+	case "network":
+		return "网络信息"
+	case "patch":
+		return "补丁更新"
+	case "share":
+		return "共享配置"
+	case "process":
+		return "进程信息"
+	case "filesystem":
+		return "文件系统"
+	case "meta":
+		return "元信息"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func benchmarkDisplayRecommendation(recommendation, displayStatus string) string {
+	recommendation = strings.TrimSpace(recommendation)
+	if recommendation == "" {
+		return ""
+	}
+	switch displayStatus {
+	case "不符合", "待确认", "检查失败":
+		return recommendation
+	default:
+		return ""
+	}
+}
+
+func benchmarkEvidenceSummary(actual, evidence string) string {
+	actual = strings.TrimSpace(actual)
+	if actual != "" {
+		return actual
+	}
+	evidence = strings.TrimSpace(evidence)
+	if len(evidence) <= 160 {
+		return evidence
+	}
+	return evidence[:160] + "..."
+}
+
+func writeCSVFileWithBOM(path string, rows []map[string]any) error {
+	return writeCSVFileInternal(path, rows, true)
+}
+
+func writeCSVFileInternal(path string, rows []map[string]any, writeBOM bool) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = file.Close() }()
 
+	if writeBOM {
+		if _, err := file.Write(utf8BOM); err != nil {
+			return err
+		}
+	}
 	flatRows, headers := flattenRowsAndHeaders(rows)
 	writer := csv.NewWriter(file)
 	if err := writer.Write(headers); err != nil {
@@ -3793,6 +4106,18 @@ func writeCSVFile(path string, rows []map[string]any) error {
 	}
 	writer.Flush()
 	return writer.Error()
+}
+
+func shouldWriteUTF8BOMForBenchmarkFiles(payload any) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	switch payload.(type) {
+	case benchmark.ScanResult, *benchmark.ScanResult:
+		return true
+	default:
+		return false
+	}
 }
 
 func writeXLSXFile(path string, rows []map[string]any) error {
@@ -3827,6 +4152,180 @@ func writeXLSXFile(path string, rows []map[string]any) error {
 	return file.SaveAs(path)
 }
 
+type benchmarkSummaryMetricRow struct {
+	Metric  string
+	Value   string
+	Display string
+}
+
+func printBenchmarkSummary(progress *terminalProgress, result benchmark.ScanResult) {
+	if progress == nil {
+		return
+	}
+	progress.PrintLine("benchmark summary:")
+	progress.PrintLine(fmt.Sprintf("template         %s", strings.TrimSpace(result.Template)))
+	progress.PrintLine("metric           value      display")
+	for _, row := range buildBenchmarkSummaryMetricRows(result.Summary, false) {
+		progress.PrintLine(fmt.Sprintf("%-16s %-10s %s", row.Metric, row.Value, row.Display))
+	}
+}
+
+func extractBenchmarkSummary(payload any) (benchmark.Summary, bool) {
+	switch typed := payload.(type) {
+	case benchmark.ScanResult:
+		return typed.Summary, true
+	case *benchmark.ScanResult:
+		if typed == nil {
+			return benchmark.Summary{}, false
+		}
+		return typed.Summary, true
+	default:
+		return benchmark.Summary{}, false
+	}
+}
+
+func buildBenchmarkSummaryMetricRows(summary benchmark.Summary, localized bool) []benchmarkSummaryMetricRow {
+	formatRate := func(value float64) benchmarkSummaryMetricRow {
+		raw := strconv.FormatFloat(value, 'f', 6, 64)
+		return benchmarkSummaryMetricRow{
+			Value:   raw,
+			Display: fmt.Sprintf("%.2f%%", value*100),
+		}
+	}
+
+	compliance := formatRate(summary.ComplianceRate)
+	coverage := formatRate(summary.CoverageRate)
+	unknown := formatRate(summary.UnknownRate)
+
+	metric := func(english, chinese string) string {
+		if localized {
+			return chinese
+		}
+		return english
+	}
+
+	return []benchmarkSummaryMetricRow{
+		{Metric: metric("total", "总检查项数"), Value: strconv.Itoa(summary.Total), Display: strconv.Itoa(summary.Total)},
+		{Metric: metric("pass", "符合项"), Value: strconv.Itoa(summary.Pass), Display: strconv.Itoa(summary.Pass)},
+		{Metric: metric("fail", "不符合项"), Value: strconv.Itoa(summary.Fail), Display: strconv.Itoa(summary.Fail)},
+		{Metric: metric("unknown", "信息/待确认项"), Value: strconv.Itoa(summary.Unknown), Display: strconv.Itoa(summary.Unknown)},
+		{Metric: metric("evaluated", "可判定项"), Value: strconv.Itoa(summary.Evaluated), Display: strconv.Itoa(summary.Evaluated)},
+		{Metric: metric("compliance_rate", "合规率"), Value: compliance.Value, Display: compliance.Display},
+		{Metric: metric("coverage_rate", "判定覆盖率"), Value: coverage.Value, Display: coverage.Display},
+		{Metric: metric("unknown_rate", "信息项占比"), Value: unknown.Value, Display: unknown.Display},
+	}
+}
+
+func writeBenchmarkSummaryCSVSidecar(csvPath string, payload any) (string, error) {
+	summary, ok := extractBenchmarkSummary(payload)
+	if !ok {
+		return "", nil
+	}
+
+	summaryPath := strings.TrimSuffix(csvPath, filepath.Ext(csvPath)) + ".summary.csv"
+	file, err := os.Create(summaryPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	if shouldWriteUTF8BOMForBenchmarkFiles(payload) {
+		if _, err := file.Write(utf8BOM); err != nil {
+			return "", err
+		}
+	}
+	writer := csv.NewWriter(file)
+	if err := writer.Write([]string{"指标", "原始值", "展示值"}); err != nil {
+		return "", err
+	}
+	for _, row := range buildBenchmarkSummaryMetricRows(summary, true) {
+		if err := writer.Write([]string{row.Metric, row.Value, row.Display}); err != nil {
+			return "", err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return summaryPath, nil
+}
+
+func appendBenchmarkSummarySheetToXLSXFiles(paths []string, payload any) error {
+	summary, ok := extractBenchmarkSummary(payload)
+	if !ok {
+		return nil
+	}
+	for _, path := range paths {
+		if err := appendBenchmarkSummarySheet(path, summary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func appendBenchmarkSummarySheet(path string, summary benchmark.Summary) error {
+	file, err := excelize.OpenFile(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	const summarySheet = "summary"
+	const resultsSheet = "results"
+	for _, name := range file.GetSheetList() {
+		if name == summarySheet {
+			if err := file.DeleteSheet(summarySheet); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
+	sheetIdx, err := file.NewSheet(summarySheet)
+	if err != nil {
+		return err
+	}
+
+	if err := file.SetCellValue(summarySheet, "A1", "指标"); err != nil {
+		return err
+	}
+	if err := file.SetCellValue(summarySheet, "B1", "原始值"); err != nil {
+		return err
+	}
+	if err := file.SetCellValue(summarySheet, "C1", "展示值"); err != nil {
+		return err
+	}
+
+	rows := buildBenchmarkSummaryMetricRows(summary, true)
+	for i, row := range rows {
+		r := i + 2
+		if err := file.SetCellValue(summarySheet, fmt.Sprintf("A%d", r), row.Metric); err != nil {
+			return err
+		}
+		if err := file.SetCellValue(summarySheet, fmt.Sprintf("B%d", r), row.Value); err != nil {
+			return err
+		}
+		if err := file.SetCellValue(summarySheet, fmt.Sprintf("C%d", r), row.Display); err != nil {
+			return err
+		}
+	}
+
+	if err := file.SetColWidth(summarySheet, "A", "A", 24); err != nil {
+		return err
+	}
+	if err := file.SetColWidth(summarySheet, "B", "C", 16); err != nil {
+		return err
+	}
+
+	activeSheetIdx := sheetIdx
+	if resultsIdx, err := file.GetSheetIndex(resultsSheet); err == nil && resultsIdx >= 0 {
+		activeSheetIdx = resultsIdx
+	}
+	file.SetActiveSheet(activeSheetIdx)
+
+	return file.Save()
+}
+
 func validateXLSXShape(dataRows int, columns int) error {
 	if columns > xlsxMaxColumns {
 		return fmt.Errorf("xlsx output exceeds column limit (%d > %d); use -o <file>.csv or -o <file>.json", columns, xlsxMaxColumns)
@@ -3857,8 +4356,41 @@ func flattenRowsAndHeaders(rows []map[string]any) ([]map[string]string, []string
 	for key := range headerSet {
 		headers = append(headers, key)
 	}
-	sort.Strings(headers)
+	headers = orderDisplayHeaders(headers)
 	return flatRows, headers
+}
+
+func orderDisplayHeaders(headers []string) []string {
+	benchmarkOrder := []string{
+		"检查项编号",
+		"检查项名称",
+		"分类",
+		"基线要求",
+		"实际结果",
+		"判定结果",
+		"风险等级",
+		"整改建议",
+		"证据摘要",
+	}
+	orderIndex := make(map[string]int, len(benchmarkOrder))
+	for i, key := range benchmarkOrder {
+		orderIndex[key] = i
+	}
+	sort.Slice(headers, func(i, j int) bool {
+		li, lok := orderIndex[headers[i]]
+		lj, jok := orderIndex[headers[j]]
+		switch {
+		case lok && jok:
+			return li < lj
+		case lok:
+			return true
+		case jok:
+			return false
+		default:
+			return headers[i] < headers[j]
+		}
+	})
+	return headers
 }
 
 func flattenRow(row map[string]any) map[string]string {
@@ -4457,6 +4989,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "COMMANDS:")
 	fmt.Fprintln(os.Stderr, "    hostscan    host information module")
 	fmt.Fprintln(os.Stderr, "    filescan    document information module")
+	fmt.Fprintln(os.Stderr, "    benchmark   security baseline benchmark module")
 	fmt.Fprintln(os.Stderr, "    sbom        software bill-of-materials collection module")
 	fmt.Fprintln(os.Stderr, "    eventlog    host event-log collection module")
 	fmt.Fprintln(os.Stderr, "    netscan     internal network asset discovery module")
@@ -4509,6 +5042,23 @@ func filescanUsage() {
 	fmt.Fprintln(os.Stderr, "    -analysis-max-duration <number>  Analysis duration limit (add units, such as 30s, 5m, 1h)")
 	fmt.Fprintln(os.Stderr, "    -cloud-upload                    Enable file upload cloud analysis")
 	fmt.Fprintln(os.Stderr, "    --risk-mode <mode>               Risk analysis mode: local_only / cloud_only / fast / smart / deep")
+}
+
+func benchmarkUsage() {
+	fmt.Fprintln(os.Stderr, "NAME:")
+	fmt.Fprintln(os.Stderr, "    c-eyes benchmark - Run a security baseline benchmark task")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "USAGE:")
+	fmt.Fprintln(os.Stderr, "    c-eyes benchmark [command options]")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "OPTIONS:")
+	fmt.Fprintln(os.Stderr, "    --template <name>                Template selection: auto|windows|linux|euleros|kylin (default: auto)")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "NOTE:")
+	fmt.Fprintln(os.Stderr, "    benchmark is collection-only and does not support -r/--riskanalyze or risk options.")
+	fmt.Fprintln(os.Stderr, "    benchmark requires administrator privilege on Windows.")
+	fmt.Fprintln(os.Stderr, "    benchmark requires root privilege on Linux-family systems.")
+	fmt.Fprintln(os.Stderr, "    benchmark uses global -o/--output for result path (.json/.csv/.xlsx).")
 }
 
 func sbomUsage() {

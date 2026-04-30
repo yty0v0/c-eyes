@@ -18,9 +18,12 @@ type terminalProgress struct {
 	lastLen      int
 	lastLine     string
 	logLines     int
+	lastRows     int
 	pinned       bool
+	pinBottom    bool
 	closed       bool
 	cursorHidden bool
+	termWidth    int
 }
 
 var terminalSupportsCursorMotion = func(fd uintptr) bool {
@@ -28,22 +31,38 @@ var terminalSupportsCursorMotion = func(fd uintptr) bool {
 }
 
 func newTerminalProgress(out io.Writer, label string) *terminalProgress {
-	return newTerminalProgressWithPin(out, label, shouldPinProgress(out))
+	return newTerminalProgressWithBottomPin(out, label, shouldPinProgress(out))
 }
 
 func newTerminalProgressWithPin(out io.Writer, label string, pinned bool) *terminalProgress {
-	return &terminalProgress{
+	p := &terminalProgress{
 		out:    out,
 		label:  strings.TrimSpace(label),
 		pinned: pinned,
 	}
+	if p.pinned {
+		p.termWidth = detectTerminalWidth(out)
+	}
+	return p
+}
+
+func newTerminalProgressWithBottomPin(out io.Writer, label string, pinned bool) *terminalProgress {
+	p := &terminalProgress{
+		out:       out,
+		label:     strings.TrimSpace(label),
+		pinBottom: pinned,
+	}
+	return p
 }
 
 func shouldPinProgress(out io.Writer) bool {
 	if !isPinnedProgressEnabled() {
 		return false
 	}
-	return shouldPinProgressByCapability(out)
+	if shouldPinProgressByCapability(out) {
+		return true
+	}
+	return shouldPinProgressByFallback(out)
 }
 
 func shouldPinProgressByCapability(out io.Writer) bool {
@@ -61,16 +80,77 @@ func shouldPinProgressByCapability(out io.Writer) bool {
 	return enableProgressANSIMode(fd)
 }
 
-func shouldPinFilescanProgress(out io.Writer) bool {
-	if shouldPinProgress(out) {
-		return true
+func detectTerminalWidth(out io.Writer) int {
+	if out == nil {
+		return 0
 	}
+	fdWriter, ok := out.(interface{ Fd() uintptr })
+	if !ok {
+		return 0
+	}
+	fd := fdWriter.Fd()
+	if !terminalSupportsCursorMotion(fd) {
+		return 0
+	}
+	if cols, ok := terminalWidth(fd); ok && cols > 0 {
+		return cols
+	}
+	return 0
+}
+
+func shouldPinProgressByFallback(out io.Writer) bool {
+	if out == nil || runtime.GOOS == "windows" {
+		return false
+	}
+	file, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return progressPinnedFallbackEnabled(os.Getenv("TERM"), runtime.GOOS, info.Mode()&os.ModeCharDevice != 0)
+}
+
+func shouldPinFilescanProgress(out io.Writer) bool {
 	raw := strings.ToLower(strings.TrimSpace(os.Getenv("CEYES_PROGRESS_PINNED")))
 	switch raw {
 	case "0", "false", "no", "off":
 		return false
+	case "1", "true", "yes", "on":
+		if shouldPinProgressByCapability(out) {
+			return true
+		}
+		return shouldPinFilescanProgressByFallback(out)
+	}
+	if shouldPinProgress(out) {
+		return true
 	}
 	return shouldPinProgressByCapability(out)
+}
+
+func shouldPinFilescanProgressByFallback(out io.Writer) bool {
+	if out == nil || runtime.GOOS == "windows" {
+		return false
+	}
+	file, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return progressPinnedFallbackEnabled(os.Getenv("TERM"), runtime.GOOS, info.Mode()&os.ModeCharDevice != 0)
+}
+
+func progressPinnedFallbackEnabled(term, goos string, charDevice bool) bool {
+	if goos == "windows" || !charDevice {
+		return false
+	}
+	trimmed := strings.ToLower(strings.TrimSpace(term))
+	return trimmed != "" && trimmed != "dumb"
 }
 
 func isPinnedProgressEnabled() bool {
@@ -81,9 +161,8 @@ func isPinnedProgressEnabled() bool {
 	case "0", "false", "no", "off":
 		return false
 	}
-	// Top-pinned redraw relies on frequent cursor up/down moves, which visibly
-	// jitters in Windows terminals. Keep it off by default on Windows.
-	return runtime.GOOS != "windows"
+	// Default to top-pinned progress when not explicitly disabled.
+	return true
 }
 
 func (p *terminalProgress) Update(done, total int, stage string) {
@@ -127,6 +206,11 @@ func (p *terminalProgress) Update(done, total int, stage string) {
 		p.renderPinnedLine(line)
 		return
 	}
+	if p.pinBottom {
+		p.hideCursor()
+		p.renderBottomPinnedLine(line)
+		return
+	}
 
 	padding := ""
 	if p.lastLen > len(line) {
@@ -153,12 +237,28 @@ func (p *terminalProgress) PrintLine(line string) {
 		}
 		if line == "" {
 			fmt.Fprint(p.out, "\n")
+			p.logLines++
+		} else {
+			fmt.Fprintln(p.out, line)
+			p.logLines += p.visualRows(line)
+		}
+		if p.lastLen > 0 {
+			p.renderPinnedLine(p.lastLine)
+		}
+		return
+	}
+	if p.pinBottom {
+		hadProgress := p.lastLen > 0
+		if hadProgress {
+			p.clearBottomPinnedLine()
+		}
+		if line == "" {
+			fmt.Fprint(p.out, "\n")
 		} else {
 			fmt.Fprintln(p.out, line)
 		}
-		p.logLines++
-		if p.lastLen > 0 {
-			p.renderPinnedLine(p.lastLine)
+		if hadProgress && p.lastLine != "" {
+			p.renderBottomPinnedLine(p.lastLine)
 		}
 		return
 	}
@@ -191,6 +291,8 @@ func (p *terminalProgress) Done() {
 			if p.logLines == 0 {
 				fmt.Fprint(p.out, "\n")
 			}
+		} else if p.pinBottom {
+			fmt.Fprint(p.out, "\n")
 		} else {
 			fmt.Fprint(p.out, "\n")
 		}
@@ -217,6 +319,7 @@ func (p *terminalProgress) renderPinnedLine(line string) {
 	fmt.Fprint(p.out, "\r"+line+padding)
 	p.lastLen = len(line)
 	p.lastLine = line
+	p.lastRows = p.visualRows(line)
 
 	if offset > 0 {
 		fmt.Fprintf(p.out, "\x1b[%dB\r", offset)
@@ -224,9 +327,56 @@ func (p *terminalProgress) renderPinnedLine(line string) {
 }
 
 func (p *terminalProgress) hideCursor() {
-	if !p.pinned || p.cursorHidden {
+	if (!p.pinned && !p.pinBottom) || p.cursorHidden {
 		return
 	}
 	fmt.Fprint(p.out, "\x1b[?25l")
 	p.cursorHidden = true
+}
+
+func (p *terminalProgress) clearBottomPinnedLine() {
+	padding := ""
+	if p.lastLen > 0 {
+		padding = strings.Repeat(" ", p.lastLen)
+	}
+	fmt.Fprint(p.out, "\r"+padding+"\r")
+	p.lastLen = 0
+	p.lastLine = ""
+	p.lastRows = 0
+}
+
+func (p *terminalProgress) renderBottomPinnedLine(line string) {
+	padding := ""
+	if p.lastLen > len(line) {
+		padding = strings.Repeat(" ", p.lastLen-len(line))
+	}
+	fmt.Fprint(p.out, "\r"+line+padding)
+	p.lastLen = len(line)
+	p.lastLine = line
+	p.lastRows = 1
+}
+
+func (p *terminalProgress) visualRows(line string) int {
+	if line == "" {
+		return 1
+	}
+	width := p.termWidth
+	if width <= 0 {
+		return 1
+	}
+	rows := 1
+	col := 0
+	for _, r := range line {
+		if r == '\n' {
+			rows++
+			col = 0
+			continue
+		}
+		col++
+		if col > width {
+			rows++
+			col = 1
+		}
+	}
+	return rows
 }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<result uuid="ffabcdef-2026-0427-1837-aaa060364304" ip="10.0.0.3" template_time="2026-04-27 18:37:10">
+  <security type="auto">
+    <item flag="E-001">
+      <cmd info="26-04-27">
+        <command><![CDATA[check empty password accounts]]></command>
+        <value><![CDATA[failed: account test has empty password]]></value>
+      </cmd>
+    </item>
+  </security>
+</result>
