@@ -354,7 +354,7 @@ func nativeProfileForTemplate(template Template) (nativeTemplateProfile, error) 
 
 func nativeWindowsProfile() nativeTemplateProfile {
 	return nativeTemplateProfile{
-		uuid:         "ffabcdef-2026-0427-1641-aaa430851778",
+		uuid:         "benchmark-windows-native-v1",
 		templateTime: "2026-04-27 16:41:43",
 		checks: []nativeCheck{
 			{id: "8", shell: "powershell", command: `Get-TimeZone | Select-Object DisplayName, Id | ConvertTo-Json -Depth 4`},
@@ -375,7 +375,7 @@ func nativeWindowsProfile() nativeTemplateProfile {
 
 func nativeLinuxProfile() nativeTemplateProfile {
 	return nativeTemplateProfile{
-		uuid:         "ffabcdef-2024-0808-1610-aaa150885370",
+		uuid:         "benchmark-linux-native-v1",
 		templateTime: "2024-08-08 16:10:15",
 		checks: []nativeCheck{
 			{id: "6", command: `chkconfig --list | head -50`},
@@ -408,7 +408,7 @@ if [ -f /etc/passwd ];then lsattr /etc/passwd 2>/dev/null;fi`},
 
 func nativeEulerOSProfile() nativeTemplateProfile {
 	return nativeTemplateProfile{
-		uuid:         "ffabcdef-2026-0427-1837-aaa060364304",
+		uuid:         "benchmark-euleros-native-v1",
 		templateTime: "2026-04-27 18:37:06",
 		checks: []nativeCheck{
 			{id: "11", command: `lastb -100 2>/dev/null`},
@@ -432,7 +432,7 @@ func nativeEulerOSProfile() nativeTemplateProfile {
 
 func nativeKylinProfile() nativeTemplateProfile {
 	return nativeTemplateProfile{
-		uuid:         "ffabcdef-2026-0427-1837-aaa140429035",
+		uuid:         "benchmark-kylin-native-v1",
 		templateTime: "2026-04-27 18:37:14",
 		checks: []nativeCheck{
 			{id: "11", command: `ifconfig -a 2>/dev/null`},

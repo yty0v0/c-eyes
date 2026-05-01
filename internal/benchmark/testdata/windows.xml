@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<result ip="10.0.0.1" uuid="ffabcdef-2026-0427-1641-aaa430851778" template_time="2026-04-27 16:41:43">
+<result ip="10.0.0.1" uuid="benchmark-windows-native-v1" template_time="2026-04-27 16:41:43">
   <security type="auto">
     <item flag="W-001">
       <cmd info="26-04-27">

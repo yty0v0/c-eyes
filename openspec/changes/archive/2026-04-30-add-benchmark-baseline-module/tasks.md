@@ -12,7 +12,7 @@
 - [x] 2.3 Implement privilege preflight checks (Windows administrator, Linux-family root).
 - [x] 2.4 Implement runtime dependency checks for required command engines.
 - [x] 2.5 Replace Windows packaged-script execution with Go-native collectors plus YAML rule evaluation.
-- [x] 2.6 Remove bundled Windows original script assets from the benchmark package path.
+- [x] 2.6 Remove bundled original benchmark script assets from the benchmark package path for all templates.
 
 ## 3. Result Model and Evaluation
 

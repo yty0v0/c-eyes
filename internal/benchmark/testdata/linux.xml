@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<result uuid="ffabcdef-2024-0808-1610-aaa150885370" ip="10.0.0.2" template_time="2024-08-08 16:10:15">
+<result uuid="benchmark-linux-native-v1" ip="10.0.0.2" template_time="2024-08-08 16:10:15">
   <security type="auto">
     <item flag="L-001">
       <cmd info="24-08-08">

@@ -48,10 +48,10 @@ The benchmark module MUST fail fast when elevated privilege is not available.
 ### Requirement: Benchmark runtime SHALL use native collectors and YAML rule metadata
 The benchmark runtime SHALL use native collectors and YAML-defined rule metadata for Windows and Linux-family templates while preserving each template's benchmark semantics.
 
-#### Scenario: Windows benchmark runs without original VBS assets
+#### Scenario: Windows benchmark runs without original script assets
 - **WHEN** the user executes `c-eyes benchmark --template windows`
 - **THEN** benchmark completes using Go-native Windows collectors
-- **AND** the packaged benchmark asset directory does not require original `.vbs` or `scripten.exe`
+- **AND** the packaged benchmark asset directory does not contain original benchmark `.vbs`, `.pl`, `.sh`, or similar script artifacts
 
 ### Requirement: Benchmark source and packaged assets SHALL NOT leak original script artifacts
 The benchmark implementation MUST NOT retain or distribute original benchmark script artifacts in source asset directories, embedded asset sets, or packaged outputs.

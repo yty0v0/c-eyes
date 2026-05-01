@@ -39,17 +39,22 @@ The benchmark module MUST fail fast when elevated privilege is not available.
 - **WHEN** a non-root user executes `c-eyes benchmark` on Linux, EulerOS, or Kylin
 - **THEN** the command exits with an English permission error indicating root privilege is required
 
-### Requirement: Windows benchmark SHALL use Go-native collection and YAML rule evaluation
-The Windows benchmark runtime SHALL use Go-native collectors and YAML-defined rule metadata instead of packaged original Windows script assets.
+### Requirement: Benchmark runtime SHALL use native collection and YAML rule evaluation
+The benchmark runtime SHALL use native collectors and YAML-defined rule metadata instead of packaged original benchmark script assets.
 
-#### Scenario: Windows benchmark runs without original VBS assets
+#### Scenario: Windows benchmark runs without original script assets
 - **WHEN** the user executes `c-eyes benchmark --template windows`
 - **THEN** benchmark completes using Go-native Windows collectors
-- **AND** the packaged benchmark asset directory does not require original `.vbs` or `scripten.exe`
+- **AND** the packaged benchmark asset directory does not contain original benchmark `.vbs`, `.pl`, `.sh`, or similar script artifacts
 
-#### Scenario: Windows benchmark rule metadata is applied
-- **WHEN** a Windows benchmark row matches a configured YAML rule
+#### Scenario: Benchmark rule metadata is applied
+- **WHEN** a benchmark row matches a configured YAML rule
 - **THEN** the row includes readable rule metadata such as check name, expected value, severity, and recommendation
+
+#### Scenario: Linux-family benchmark runs without original script assets
+- **WHEN** the user executes `c-eyes benchmark` on Linux, EulerOS, or Kylin
+- **THEN** benchmark completes using the Unix native benchmark path
+- **AND** the packaged benchmark asset directory does not contain original benchmark `.pl`, `.sh`, `.vbs`, or similar script artifacts
 
 ### Requirement: Benchmark exported result rows SHALL prioritize report readability
 The system SHALL export benchmark rows in a concise report-oriented shape for CSV/XLSX output.

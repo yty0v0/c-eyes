@@ -2,7 +2,7 @@
 
 `c-eyes benchmark` is now implemented, but the implementation diverged from the original design in several intentional ways:
 
-- Windows no longer runs the original vendor `.vbs` bundle.
+- Benchmark runtime no longer distributes original vendor script bundles.
 - Windows now uses Go-native collection plus YAML rule metadata.
 - Exported benchmark data is no longer a raw technical payload by default; it is shaped into a concise report view for CSV/XLSX.
 - Raw XML retention was removed after review because it leaked too much execution detail and was not needed in the final operator-facing result.
@@ -13,7 +13,7 @@ This design document updates the benchmark architecture to match the implemented
 
 **Goals**
 - Preserve a unified `benchmark` command with strict privilege gates and template routing.
-- Keep Windows baseline logic distributable without shipping original Windows script files.
+- Keep benchmark logic distributable without shipping original script files for any template.
 - Keep Linux / EulerOS / Kylin benchmark behavior compatible with packaged runtime checks.
 - Produce benchmark exports that make compliance state obvious immediately.
 - Separate internal execution details from user-facing report fields.
@@ -47,7 +47,7 @@ Windows now uses a native implementation:
 - YAML-defined rule metadata and evaluator configuration
 - trace XML may still be assembled transiently inside the runtime path when needed for compatibility, but it is not retained or surfaced in exports
 
-This design intentionally avoids packaging original Windows `.vbs` / `scripten.exe` assets.
+This design intentionally avoids packaging original benchmark script assets for all templates.
 
 #### Linux / EulerOS / Kylin
 
