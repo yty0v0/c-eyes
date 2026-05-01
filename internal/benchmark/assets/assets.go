@@ -2,7 +2,7 @@ package assets
 
 import "embed"
 
-// Files contains packaged benchmark template scripts for all supported platforms.
+// Files contains packaged non-script benchmark assets for all supported platforms.
 //
-//go:embed windows/* linux/* euleros/* kylin/*
+//go:embed windows/*.yaml windows/*.txt linux/*.yaml euleros/*.yaml kylin/*.yaml
 var Files embed.FS

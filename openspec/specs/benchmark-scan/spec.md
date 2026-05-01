@@ -53,6 +53,24 @@ The benchmark runtime SHALL use native collectors and YAML-defined rule metadata
 - **THEN** benchmark completes using Go-native Windows collectors
 - **AND** the packaged benchmark asset directory does not require original `.vbs` or `scripten.exe`
 
+### Requirement: Benchmark source and packaged assets SHALL NOT leak original script artifacts
+The benchmark implementation MUST NOT retain or distribute original benchmark script artifacts in source asset directories, embedded asset sets, or packaged outputs.
+
+#### Scenario: Benchmark asset directories exclude original script files
+- **WHEN** a maintainer inspects benchmark asset directories in source form
+- **THEN** the directories do not contain original benchmark `.pl`, `.sh`, `.vbs`, or similar script payloads
+- **AND** benchmark assets only retain approved non-script metadata such as YAML rule files or explicit documentation
+
+#### Scenario: Embedded benchmark assets exclude original script files
+- **WHEN** the project embeds benchmark assets into the binary
+- **THEN** the embed set excludes original benchmark script artifacts
+- **AND** only approved non-script benchmark assets are embedded
+
+#### Scenario: Packaged benchmark output does not expose original script assets
+- **WHEN** the project produces a distributable source archive or binary package
+- **THEN** the package does not include original benchmark script artifacts
+- **AND** the package does not include instructions that require copying or executing original benchmark scripts on target hosts
+
 #### Scenario: Benchmark rule metadata is applied
 - **WHEN** a benchmark row matches a configured YAML rule
 - **THEN** the row includes readable rule metadata such as check name, expected value, severity, and recommendation
