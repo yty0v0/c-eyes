@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"strings"
 	"testing"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -35,6 +36,49 @@ func TestNativeProfileCheckCounts(t *testing.T) {
 				t.Fatalf("expected uuid and templateTime to be non-empty, got uuid=%q templateTime=%q", profile.uuid, profile.templateTime)
 			}
 		})
+	}
+}
+
+func TestNativeProfileForTemplateLevelOverridesMetadataAndKnownCommands(t *testing.T) {
+	t.Parallel()
+
+	linuxLevel1, err := nativeProfileForTemplateLevel(TemplateLinux, BaselineLevel1)
+	if err != nil {
+		t.Fatalf("nativeProfileForTemplateLevel level1 returned error: %v", err)
+	}
+	linuxLevel2, err := nativeProfileForTemplateLevel(TemplateLinux, BaselineLevel2)
+	if err != nil {
+		t.Fatalf("nativeProfileForTemplateLevel level2 returned error: %v", err)
+	}
+	if linuxLevel1.templateTime == linuxLevel2.templateTime {
+		t.Fatalf("expected different template time across levels, got %q", linuxLevel1.templateTime)
+	}
+	if linuxLevel1.uuid == linuxLevel2.uuid {
+		t.Fatalf("expected different uuid across levels, got %q", linuxLevel1.uuid)
+	}
+
+	findCommand := func(profile nativeTemplateProfile, id string) string {
+		for _, check := range profile.checks {
+			if check.id == id {
+				return check.command
+			}
+		}
+		return ""
+	}
+
+	if got := findCommand(linuxLevel2, "15"); !strings.Contains(got, "head -300") {
+		t.Fatalf("expected level2 linux process command to include head -300, got %q", got)
+	}
+
+	winLevel3, err := nativeProfileForTemplateLevel(TemplateWindows, BaselineLevel3)
+	if err != nil {
+		t.Fatalf("nativeProfileForTemplateLevel windows level3 returned error: %v", err)
+	}
+	if winLevel3.templateTime != "2025-06-25 13:20:00" {
+		t.Fatalf("unexpected windows level3 templateTime: %q", winLevel3.templateTime)
+	}
+	if winLevel3.uuid != "benchmark-windows-native-v3" {
+		t.Fatalf("unexpected windows level3 uuid: %q", winLevel3.uuid)
 	}
 }
 

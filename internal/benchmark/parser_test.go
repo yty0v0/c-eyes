@@ -26,7 +26,7 @@ func TestParseXMLFileFixtures(t *testing.T) {
 			t.Parallel()
 
 			path := filepath.Join("testdata", tc.file)
-			rows, err := parseXMLFile(path, tc.template)
+			rows, err := parseXMLFile(path, tc.template, BaselineLevel1)
 			if err != nil {
 				t.Fatalf("parseXMLFile returned error: %v", err)
 			}
@@ -66,7 +66,7 @@ func TestParseXMLFileAppliesRuleMetadataForLinuxFamily(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			rows, err := parseXMLFile(filepath.Join("testdata", tc.file), tc.template)
+			rows, err := parseXMLFile(filepath.Join("testdata", tc.file), tc.template, BaselineLevel1)
 			if err != nil {
 				t.Fatalf("parseXMLFile returned error: %v", err)
 			}
@@ -111,6 +111,12 @@ func TestSummarizeRows(t *testing.T) {
 	if summary.Unknown != 1 {
 		t.Fatalf("expected unknown=1, got %d", summary.Unknown)
 	}
+	if summary.Informational != 0 {
+		t.Fatalf("expected informational=0, got %d", summary.Informational)
+	}
+	if summary.Pending != 1 {
+		t.Fatalf("expected pending=1, got %d", summary.Pending)
+	}
 	if summary.Evaluated != 3 {
 		t.Fatalf("expected evaluated=3, got %d", summary.Evaluated)
 	}
@@ -123,14 +129,20 @@ func TestSummarizeRows(t *testing.T) {
 	if summary.UnknownRate <= 0.24 || summary.UnknownRate >= 0.26 {
 		t.Fatalf("expected unknown rate around 0.25, got %f", summary.UnknownRate)
 	}
+	if summary.InformationalRate != 0 {
+		t.Fatalf("expected informational rate=0, got %f", summary.InformationalRate)
+	}
+	if summary.PendingRate <= 0.24 || summary.PendingRate >= 0.26 {
+		t.Fatalf("expected pending rate around 0.25, got %f", summary.PendingRate)
+	}
 }
 
 func TestSummarizeRowsAllUnknown(t *testing.T) {
 	t.Parallel()
 
 	rows := []Row{
-		{Status: "unknown"},
-		{Status: "UNKNOWN"},
+		{Status: "unknown", StatusReason: "informational_check"},
+		{Status: "UNKNOWN", StatusReason: "undetermined"},
 	}
 
 	summary := summarize(rows)
@@ -143,6 +155,12 @@ func TestSummarizeRowsAllUnknown(t *testing.T) {
 	if summary.Unknown != 2 {
 		t.Fatalf("expected unknown=2, got %d", summary.Unknown)
 	}
+	if summary.Informational != 1 {
+		t.Fatalf("expected informational=1, got %d", summary.Informational)
+	}
+	if summary.Pending != 1 {
+		t.Fatalf("expected pending=1, got %d", summary.Pending)
+	}
 	if summary.Evaluated != 0 {
 		t.Fatalf("expected evaluated=0, got %d", summary.Evaluated)
 	}
@@ -154,6 +172,12 @@ func TestSummarizeRowsAllUnknown(t *testing.T) {
 	}
 	if summary.UnknownRate != 1 {
 		t.Fatalf("expected unknown rate=1, got %f", summary.UnknownRate)
+	}
+	if summary.InformationalRate != 0.5 {
+		t.Fatalf("expected informational rate=0.5, got %f", summary.InformationalRate)
+	}
+	if summary.PendingRate != 0.5 {
+		t.Fatalf("expected pending rate=0.5, got %f", summary.PendingRate)
 	}
 }
 

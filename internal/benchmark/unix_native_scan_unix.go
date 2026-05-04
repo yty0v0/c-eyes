@@ -1,4 +1,4 @@
-//go:build !windows
+﻿//go:build !windows
 
 package benchmark
 
@@ -18,18 +18,18 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func scanUnixNativeBenchmark(ctx context.Context, template Template, workingRoot string, progress func(done, total int, stage string)) (ScanResult, bool, error) {
+func scanUnixNativeBenchmark(ctx context.Context, template Template, level BaselineLevel, workingRoot string, progress func(done, total int, stage string)) (ScanResult, bool, error) {
 	if template == TemplateWindows {
 		return ScanResult{}, false, nil
 	}
 
-	ruleSet, err := loadBenchmarkRuleSet(template)
+	ruleSet, err := loadBenchmarkRuleSet(template, level)
 	if err != nil {
 		return ScanResult{}, true, err
 	}
 	ruleIndex := buildBenchmarkRuleIndex(ruleSet)
 
-	profile, err := nativeProfileForTemplate(template)
+	profile, err := nativeProfileForTemplateLevel(template, level)
 	if err != nil {
 		return ScanResult{}, true, err
 	}
@@ -278,6 +278,7 @@ func scanUnixNativeBenchmark(ctx context.Context, template Template, workingRoot
 			}
 		}
 		result = shapeUnixBenchmarkResult(template, result)
+		result = shapeUnixAdvancedResult(result)
 		executionErrorDetected := strings.Contains(strings.ToLower(result.Evidence), "not found") || strings.Contains(strings.ToLower(result.Actual), "not found")
 		if runErr != nil {
 			message := fmt.Sprintf("collector execution failed: %v", runErr)
@@ -351,7 +352,8 @@ func scanUnixNativeBenchmark(ctx context.Context, template Template, workingRoot
 			UUID:            profile.uuid,
 			TemplateTime:    profile.templateTime,
 			Product:         "BVS",
-			TemplateName:    benchmarkTemplateDisplayName(template),
+			TemplateName:    benchmarkTemplateDisplayName(template, level),
+			BaselineLevel:   string(level),
 			TemplateVersion: "V6.0R03F02.0007",
 			Industry:        "等级保护2.0",
 			SystemVersion:   "V6.0R03F03SP07",
@@ -362,16 +364,20 @@ func scanUnixNativeBenchmark(ctx context.Context, template Template, workingRoot
 	}, true, nil
 }
 
-func benchmarkTemplateDisplayName(template Template) string {
+func benchmarkTemplateDisplayName(template Template, level BaselineLevel) string {
+	if level == "" {
+		level = BaselineLevel1
+	}
+	suffix := "_S1A" + string(level) + "G" + string(level)
 	switch template {
 	case TemplateLinux:
-		return "Linux 配置规范_S1A1G1"
+		return "Linux Benchmark" + suffix
 	case TemplateEulerOS:
-		return "EulerOS 配置规范_S1A1G1"
+		return "EulerOS Benchmark" + suffix
 	case TemplateKylin:
-		return "银河麒麟 配置规范_S1A1G1"
+		return "Kylin Benchmark" + suffix
 	case TemplateWindows:
-		return "Windows 配置规范_S1A1G1"
+		return "Windows Benchmark" + suffix
 	default:
 		return string(template)
 	}
@@ -596,7 +602,7 @@ func shapeUnixAccountsResult(result benchmarkCheckResult, rows []accountscan.Acc
 	if len(names) == 0 {
 		return result
 	}
-	result.Actual = fmt.Sprintf("共采集到 %d 个本地账户，root 账户存在=%t", len(names), rootPresent)
+	result.Actual = fmt.Sprintf("采集到 %d 个本地账户，root 账户存在=%t", len(names), rootPresent)
 	result.Evidence = mustMarshalPrettyJSON(rows)
 	result.Eval["account_count"] = len(names)
 	result.Eval["root_account_present"] = rootPresent
@@ -620,7 +626,7 @@ func shapeUnixGroupsResult(result benchmarkCheckResult, rows []usergroupscan.Use
 	if len(names) == 0 {
 		return result
 	}
-	result.Actual = fmt.Sprintf("共采集到 %d 个本地用户组，高权限组存在=%t", len(names), privileged)
+	result.Actual = fmt.Sprintf("采集到 %d 个本地用户组，高权限组存在=%t", len(names), privileged)
 	result.Evidence = mustMarshalPrettyJSON(rows)
 	result.Eval["group_count"] = len(names)
 	result.Eval["privileged_group_present"] = privileged
@@ -638,7 +644,7 @@ func shapeUnixProcessesResult(result benchmarkCheckResult, rows []processscan.Pr
 	if len(names) == 0 {
 		return result
 	}
-	result.Actual = fmt.Sprintf("共采集到 %d 个运行进程", len(names))
+	result.Actual = fmt.Sprintf("检测到 %d 个运行中的进程", len(names))
 	result.Evidence = mustMarshalPrettyJSON(rows)
 	result.Eval["process_count"] = len(names)
 	result.Eval["present"] = len(names) > 0
@@ -659,7 +665,7 @@ func shapeUnixServicesResult(result benchmarkCheckResult, rows []startupscan.Sta
 	if len(names) == 0 {
 		return result
 	}
-	result.Actual = fmt.Sprintf("共采集到 %d 个服务，其中 %d 个开机启用", len(names), autoEnabled)
+	result.Actual = fmt.Sprintf("检测到 %d 个服务，其中 %d 个为自动启用", len(names), autoEnabled)
 	result.Evidence = mustMarshalPrettyJSON(rows)
 	result.Eval["service_count"] = len(names)
 	result.Eval["auto_enabled_count"] = autoEnabled
@@ -684,7 +690,7 @@ func shapeUnixInterfacesResult(result benchmarkCheckResult, rows []unixInterface
 	if len(names) == 0 {
 		return result
 	}
-	result.Actual = fmt.Sprintf("发现 %d 个活动网络接口，共 %d 个地址", len(names), addressCount)
+	result.Actual = fmt.Sprintf("检测到 %d 个网络接口、%d 个地址", len(names), addressCount)
 	result.Evidence = mustMarshalPrettyJSON(rows)
 	result.Eval["interface_count"] = len(names)
 	result.Eval["address_count"] = addressCount
@@ -725,7 +731,7 @@ func shapeUnixFilesystemsResult(result benchmarkCheckResult, rows []unixFilesyst
 	if len(names) == 0 {
 		return result
 	}
-	result.Actual = fmt.Sprintf("发现 %d 个挂载文件系统，最高使用率 %d%%", len(names), highestUsed)
+	result.Actual = fmt.Sprintf("检测到 %d 个文件系统，最高使用率 %d%%", len(names), highestUsed)
 	result.Evidence = mustMarshalPrettyJSON(rows)
 	result.Eval["filesystem_count"] = len(names)
 	result.Eval["highest_used_percent"] = int64(highestUsed)
@@ -774,7 +780,7 @@ func shapeUnixShadowSummary(result benchmarkCheckResult) benchmarkCheckResult {
 			emptyPasswordCount++
 		}
 	}
-	result.Actual = fmt.Sprintf("共发现 %d 条影子口令记录，其中 %d 条为弱口令或空口令标记", entryCount, emptyPasswordCount)
+	result.Actual = fmt.Sprintf("检测到 %d 条 shadow 记录，%d 条弱口令或空口令标记", entryCount, emptyPasswordCount)
 	result.Eval["shadow_entry_count"] = entryCount
 	result.Eval["empty_password_count"] = emptyPasswordCount
 	result.Eval["present"] = entryCount > 0
@@ -1063,7 +1069,7 @@ func summarizeConfigValue(checkID, value string) string {
 		if len(lines) == 0 {
 			return "未采集到日志摘要"
 		}
-		return fmt.Sprintf("采集到 %d 条日志摘要", len(lines))
+		return fmt.Sprintf("采集到 %d 行日志摘要", len(lines))
 	case "14", "15":
 		if len(lines) == 0 {
 			return "未采集到网络连接信息"
@@ -1079,12 +1085,12 @@ func summarizeConfigValue(checkID, value string) string {
 				established++
 			}
 		}
-		return fmt.Sprintf("采集到 %d 条连接信息，其中监听 %d 条、已建立 %d 条", len(lines), listen, established)
+		return fmt.Sprintf("采集到 %d 条连接，其中监听 %d 条、已建立 %d 条", len(lines), listen, established)
 	case "16":
 		if len(lines) == 0 {
 			return "未配置 FTP Banner"
 		}
-		return "已配置 FTP Banner"
+		return "FTP Banner 已配置"
 	case "17":
 		if len(lines) == 0 {
 			return "未配置 FTP chroot 规则"
@@ -1099,7 +1105,7 @@ func summarizeConfigValue(checkID, value string) string {
 		if len(lines) == 0 {
 			return "未配置 FTP Banner 文件"
 		}
-		return "已配置 FTP Banner 文件"
+		return "FTP Banner 文件已配置"
 	case "20":
 		if len(lines) == 0 {
 			return "未配置 FTP 访问控制规则"
@@ -1112,10 +1118,9 @@ func summarizeConfigValue(checkID, value string) string {
 		if len(lines) == 1 {
 			return lines[0]
 		}
-		return fmt.Sprintf("采集到 %d 条配置/日志内容", len(lines))
+		return fmt.Sprintf("采集到 %d 行配置内容", len(lines))
 	}
 }
-
 func collectUnixReleaseInfo(template Template) (string, error) {
 	switch template {
 	case TemplateEulerOS:
@@ -1158,6 +1163,129 @@ func readFirstExistingFile(paths []string, stripComments bool, limit int) (strin
 		}
 	}
 	return "", nil
+}
+
+func shapeUnixAdvancedResult(result benchmarkCheckResult) benchmarkCheckResult {
+	if result.Eval == nil {
+		return result
+	}
+	switch result.ID {
+	case "LNX-NET-ADV-001", "LNX-NET-ADV-002", "LNX-NET-ADV-003", "LNX-NET-ADV-004", "LNX-NET-ADV-005":
+		if value, ok := parseFirstIntLine(nonEmptyLines(result.Evidence)); ok {
+			result.Actual = fmt.Sprintf("内核/网络参数值 %d", value)
+			result.Eval["int_value"] = value
+			result.Eval["value"] = strconv.FormatInt(value, 10)
+		}
+	case "LNX-SVC-ADV-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 个高风险服务迹象", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "LNX-SVC-ADV-002":
+		if value, ok := parseFirstIntLine(nonEmptyLines(result.Evidence)); ok {
+			result.Actual = fmt.Sprintf("NFS 进程数 %d", value)
+			result.Eval["int_value"] = value
+			result.Eval["value"] = strconv.FormatInt(value, 10)
+		}
+	case "LNX-SSH-ADV-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 条 AllowUsers 规则", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "LNX-SSH-ADV-002":
+		ok := strings.Contains(strings.ToLower(result.Evidence), "check result:true")
+		result.Actual = "已检测 SSH Banner 合规状态"
+		result.Eval["banner_ok"] = ok
+	case "LNX-TRUST-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 个 trust 文件", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "LNX-TIME-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 条时间服务器规则", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "LNX-TIME-002":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 个时间同步守护进程", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "EUL-NET-ADV-001", "EUL-NET-ADV-002", "EUL-NET-ADV-003", "EUL-NET-ADV-004", "EUL-NET-ADV-005",
+		"KYL-NET-ADV-001", "KYL-NET-ADV-002", "KYL-NET-ADV-003", "KYL-NET-ADV-004", "KYL-NET-ADV-005", "KYL-NET-ADV-006":
+		if value, ok := parseFirstIntLine(nonEmptyLines(result.Evidence)); ok {
+			result.Actual = fmt.Sprintf("内核/网络参数值 %d", value)
+			result.Eval["int_value"] = value
+			result.Eval["value"] = strconv.FormatInt(value, 10)
+		}
+	case "EUL-SSH-ADV-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 条 SSH Banner 规则", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "KYL-SSH-ADV-001":
+		ok := strings.Contains(strings.ToLower(result.Evidence), "check result:true")
+		result.Actual = "已检测 SSH Banner/访问控制合规状态"
+		result.Eval["banner_ok"] = ok
+	case "EUL-TIME-001", "KYL-TIME-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 条时间服务器规则", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "EUL-TIME-002", "EUL-TIME-003":
+		running := strings.Contains(strings.ToLower(result.Evidence), "active: active (running)") || strings.Contains(strings.ToLower(result.Evidence), "active (running)")
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 行时间同步状态信息", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+		result.Eval["daemon_running"] = running
+	case "KYL-TIME-002":
+		running := strings.Contains(strings.ToLower(result.Evidence), "ntp:start")
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 行时间同步状态信息", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+		result.Eval["daemon_running"] = running
+	case "EUL-LOG-ADV-001", "EUL-LOG-ADV-002", "EUL-LOG-ADV-003", "KYL-LOG-ADV-001", "KYL-LOG-ADV-002", "KYL-LOG-ADV-003":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 条高级日志规则", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "EUL-HIST-001", "EUL-HIST-002", "KYL-HIST-001", "KYL-HIST-002":
+		if value, ok := parseFirstIntLine(nonEmptyLines(result.Evidence)); ok {
+			result.Actual = fmt.Sprintf("历史记录配置值 %d", value)
+			result.Eval["int_value"] = value
+			result.Eval["value"] = strconv.FormatInt(value, 10)
+		}
+	case "KYL-TRUST-001":
+		count := len(nonEmptyLines(result.Evidence))
+		result.Actual = fmt.Sprintf("检测到 %d 个 trust 文件", count)
+		result.Eval["entry_count"] = count
+		result.Eval["present"] = count > 0
+	case "KYL-FS-ADV-001":
+		lines := nonEmptyLines(result.Evidence)
+		result.Actual = fmt.Sprintf("采集到 %d 行文件系统信息", len(lines))
+		result.Eval["entry_count"] = len(lines)
+		result.Eval["present"] = len(lines) > 0
+	}
+	return result
+}
+
+func parseFirstIntLine(lines []string) (int64, bool) {
+	for _, line := range lines {
+		text := strings.TrimSpace(line)
+		if text == "" {
+			continue
+		}
+		if idx := strings.LastIndex(text, ":"); idx >= 0 {
+			text = strings.TrimSpace(text[idx+1:])
+		}
+		n, err := strconv.ParseInt(text, 10, 64)
+		if err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 func readFileIfExists(path string, stripComments bool, limit int) (string, error) {
@@ -1235,3 +1363,5 @@ func readLastOutput(failed bool) (string, error) {
 func readNetstatOutput() (string, error) {
 	return executeNativeCheckCommand(context.Background(), TemplateLinux, nativeCheck{shell: "sh", command: "netstat -anp 2>/dev/null | head -300", limitNonEmptyLines: 300})
 }
+
+

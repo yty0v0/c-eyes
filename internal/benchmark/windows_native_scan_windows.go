@@ -36,6 +36,7 @@ type windowsBenchmarkCollectorState struct {
 	connections     []windowsNetConnection
 	shares          []windowsShareInfo
 	hotfixes        []windowsHotfixInfo
+	namedServices   map[string]windowsNamedServiceStatus
 }
 
 type windowsStartupCommandEntry struct {
@@ -69,6 +70,12 @@ type windowsHotfixInfo struct {
 	InstalledBy  string `json:"installed_by,omitempty"`
 	Description  string `json:"description,omitempty"`
 	PackageState uint64 `json:"package_state,omitempty"`
+}
+
+type windowsNamedServiceStatus struct {
+	Name      string `json:"Name"`
+	State     string `json:"State,omitempty"`
+	StartMode string `json:"StartMode,omitempty"`
 }
 
 type windowsFirewallProfile struct {
@@ -116,12 +123,12 @@ type windowsBenchmarkCollectorSpec struct {
 	Collect     func(context.Context, *windowsBenchmarkCollectorState) (benchmarkCheckResult, error)
 }
 
-func scanWindowsNativeBenchmark(ctx context.Context, template Template, workingRoot string, progress func(done, total int, stage string)) (ScanResult, bool, error) {
+func scanWindowsNativeBenchmark(ctx context.Context, template Template, level BaselineLevel, workingRoot string, progress func(done, total int, stage string)) (ScanResult, bool, error) {
 	if template != TemplateWindows {
 		return ScanResult{}, false, nil
 	}
 
-	ruleSet, err := loadBenchmarkRuleSet(template)
+	ruleSet, err := loadBenchmarkRuleSet(template, level)
 	if err != nil {
 		return ScanResult{}, true, err
 	}
@@ -132,7 +139,7 @@ func scanWindowsNativeBenchmark(ctx context.Context, template Template, workingR
 		return ScanResult{}, true, err
 	}
 
-	specs := windowsBenchmarkCollectorSpecs()
+	specs := filterWindowsBenchmarkCollectorSpecs(windowsBenchmarkCollectorSpecs(), ruleIndex)
 	results := make([]benchmarkCheckResult, 0, len(specs))
 	for idx, spec := range specs {
 		select {
@@ -213,10 +220,11 @@ func scanWindowsNativeBenchmark(ctx context.Context, template Template, workingR
 	return ScanResult{
 		Template: string(template),
 		Metadata: Metadata{
-			UUID:            profileUUIDForTemplate(template),
-			TemplateTime:    profileTimeForTemplate(template),
+			UUID:            profileUUIDForTemplate(template, level),
+			TemplateTime:    profileTimeForTemplate(template, level),
 			Product:         windowsTemplateInfo.Product,
-			TemplateName:    windowsTemplateInfo.TemplateName,
+			TemplateName:    windowsTemplateDisplayName(level),
+			BaselineLevel:   string(level),
 			TemplateVersion: windowsTemplateInfo.TemplateVersion,
 			Industry:        windowsTemplateInfo.Industry,
 			SystemVersion:   windowsTemplateInfo.SystemVersion,
@@ -225,6 +233,13 @@ func scanWindowsNativeBenchmark(ctx context.Context, template Template, workingR
 		Summary: summarize(rows),
 		Rows:    rows,
 	}, true, nil
+}
+
+func windowsTemplateDisplayName(level BaselineLevel) string {
+	if level == "" {
+		level = BaselineLevel1
+	}
+	return "Windows Benchmark_S1A" + string(level) + "G" + string(level)
 }
 
 func newWindowsBenchmarkCollectorState() (*windowsBenchmarkCollectorState, error) {
@@ -316,6 +331,44 @@ func windowsBenchmarkCollectorSpecs() []windowsBenchmarkCollectorSpec {
 		{ID: "W-PRIV-001", SectionType: "auto", Command: "native/windows/security_policy/Privilege Rights/SeDenyNetworkLogonRight", Collect: collectWindowsDenyGuestNetworkLogonCheck},
 		{ID: "W-PRIV-002", SectionType: "auto", Command: "native/windows/security_policy/Privilege Rights/SeDenyInteractiveLogonRight", Collect: collectWindowsDenyGuestInteractiveLogonCheck},
 		{ID: "W-ACC-005", SectionType: "auto", Command: "native/windows/security_policy/System Access/EnableAdminAccount", Collect: collectWindowsAdminAccountDisabledCheck},
+		{ID: "W-AUDIT-006", SectionType: "auto", Command: "native/windows/security_policy/Event Audit/AuditProcessTracking", Collect: collectWindowsAuditProcessTrackingCheck},
+		{ID: "W-AUDIT-007", SectionType: "auto", Command: "native/windows/security_policy/Event Audit/AuditPrivilegeUse", Collect: collectWindowsAuditPrivilegeUseCheck},
+		{ID: "W-AUDIT-008", SectionType: "auto", Command: "native/windows/security_policy/Event Audit/AuditDSAccess", Collect: collectWindowsAuditDSAccessCheck},
+		{ID: "W-AUDIT-009", SectionType: "auto", Command: "native/windows/security_policy/Event Audit/AuditObjectAccess", Collect: collectWindowsAuditObjectAccessCheck},
+		{ID: "W-TCP-001", SectionType: "auto", Command: "native/windows/registry/Tcpip/EnablePMTUDiscovery", Collect: collectWindowsEnablePMTUDiscoveryCheck},
+		{ID: "W-TCP-002", SectionType: "auto", Command: "native/windows/registry/Tcpip/PerformRouterDiscovery", Collect: collectWindowsPerformRouterDiscoveryCheck},
+		{ID: "W-TCP-003", SectionType: "auto", Command: "native/windows/registry/Tcpip/EnableDeadGWDetect", Collect: collectWindowsEnableDeadGWDetectCheck},
+		{ID: "W-TCP-004", SectionType: "auto", Command: "native/windows/registry/Tcpip/EnableICMPRedirect", Collect: collectWindowsEnableICMPRedirectCheck},
+		{ID: "W-TCP-005", SectionType: "auto", Command: "native/windows/registry/Tcpip/DisableIPSourceRouting", Collect: collectWindowsDisableIPSourceRoutingCheck},
+		{ID: "W-AUTOLOGIN-001", SectionType: "auto", Command: "native/windows/registry/Winlogon/AutoAdminLogon", Collect: collectWindowsAutoAdminLogonCheck},
+		{ID: "W-TIME-001", SectionType: "auto", Command: "native/windows/service/w32time/state", Collect: collectWindowsW32TimeRunningCheck},
+		{ID: "W-TIME-002", SectionType: "auto", Command: "native/windows/service/w32time/startmode", Collect: collectWindowsW32TimeAutoStartCheck},
+		{ID: "W-TIME-003", SectionType: "auto", Command: "native/windows/registry/w32time/NtpServer", Collect: collectWindowsNtpServerCheck},
+		{ID: "W-SVC-001", SectionType: "auto", Command: "native/windows/service/SMTPSVC/state", Collect: collectWindowsSMTPServiceStoppedCheck},
+		{ID: "W-SVC-002", SectionType: "auto", Command: "native/windows/service/SimpTcp/state", Collect: collectWindowsSimpTcpServiceStoppedCheck},
+		{ID: "W-SVC-003", SectionType: "auto", Command: "native/windows/service/MSMQ/state", Collect: collectWindowsMSMQServiceStoppedCheck},
+		{ID: "W-TCP-006", SectionType: "auto", Command: "native/windows/registry/Tcpip/SynAttackProtect", Collect: collectWindowsSynAttackProtectCheck},
+		{ID: "W-TCP-007", SectionType: "auto", Command: "native/windows/registry/Tcpip/TcpMaxHalfOpenRetried", Collect: collectWindowsTcpMaxHalfOpenRetriedCheck},
+		{ID: "W-TCP-008", SectionType: "auto", Command: "native/windows/registry/Tcpip/TcpMaxHalfOpen", Collect: collectWindowsTcpMaxHalfOpenCheck},
+		{ID: "W-TCP-009", SectionType: "auto", Command: "native/windows/registry/Tcpip/TcpMaxConnectResponseRetransmissions", Collect: collectWindowsTcpMaxConnectResponseRetransmissionsCheck},
+		{ID: "W-TCP-010", SectionType: "auto", Command: "native/windows/registry/Tcpip/EnableSecurityFilters", Collect: collectWindowsEnableSecurityFiltersCheck},
+		{ID: "W-TCP-011", SectionType: "auto", Command: "native/windows/registry/Tcpip/TcpMaxPortsExhausted", Collect: collectWindowsTcpMaxPortsExhaustedCheck},
+		{ID: "W-WU-001", SectionType: "auto", Command: "native/windows/registry/WindowsUpdate/AUOptions", Collect: collectWindowsAUOptionsCheck},
+		{ID: "W-DEP-001", SectionType: "auto", Command: "native/windows/wmi/DataExecutionPrevention_SupportPolicy", Collect: collectWindowsDEPPolicyCheck},
+		{ID: "W-NET-001", SectionType: "auto", Command: "native/windows/network/listen/445", Collect: collectWindowsSMBPort445Check},
+		{ID: "W-SVC-004", SectionType: "auto", Command: "native/windows/service/RasMan/state", Collect: collectWindowsRasManServiceCheck},
+		{ID: "W-SVC-005", SectionType: "auto", Command: "native/windows/service/Dhcp/state", Collect: collectWindowsDhcpServiceCheck},
+		{ID: "W-SVC-006", SectionType: "auto", Command: "native/windows/service/WINS/state", Collect: collectWindowsWINSServiceCheck},
+		{ID: "W-SVC-007", SectionType: "auto", Command: "native/windows/service/DHCPServer/state", Collect: collectWindowsDHCPServerServiceCheck},
+		{ID: "W-EVENT-001", SectionType: "auto", Command: "native/windows/registry/Eventlog/System/MaxSize", Collect: collectWindowsSystemEventLogMaxSizeCheck},
+		{ID: "W-EVENT-002", SectionType: "auto", Command: "native/windows/registry/Eventlog/System/Retention", Collect: collectWindowsSystemEventLogRetentionCheck},
+		{ID: "W-EVENT-003", SectionType: "auto", Command: "native/windows/registry/Eventlog/Application/MaxSize", Collect: collectWindowsApplicationEventLogMaxSizeCheck},
+		{ID: "W-EVENT-004", SectionType: "auto", Command: "native/windows/registry/Eventlog/Application/Retention", Collect: collectWindowsApplicationEventLogRetentionCheck},
+		{ID: "W-EVENT-005", SectionType: "auto", Command: "native/windows/registry/Eventlog/Security/Retention", Collect: collectWindowsSecurityEventLogRetentionCheck},
+		{ID: "W-EVENT-006", SectionType: "auto", Command: "native/windows/registry/Eventlog/Security/MaxSize", Collect: collectWindowsSecurityEventLogMaxSizeCheck},
+		{ID: "W-PRIV-003", SectionType: "auto", Command: "native/windows/security_policy/Privilege Rights/SeNetworkLogonRight", Collect: collectWindowsNetworkLogonRightCheck},
+		{ID: "W-RDP-001", SectionType: "auto", Command: "native/windows/registry/RDP/PortNumber", Collect: collectWindowsRDPPortCheck},
+		{ID: "W-AUTORUN-001", SectionType: "auto", Command: "native/windows/registry/Explorer/NoDriveTypeAutoRun", Collect: collectWindowsNoDriveTypeAutoRunCheck},
 		{ID: "8", SectionType: "display", Command: `wmic timezone get caption,standardname | find /i /v "standardname"`, Collect: collectWindowsTimezoneCheck},
 		{ID: "4", SectionType: "display", Command: `wmic useraccount where Domain="%computername%" get caption,description,PasswordChangeable,PasswordExpires,PasswordRequired,Lockout,status`, Collect: collectWindowsAccountsCheck},
 		{ID: "0", SectionType: "display", Command: `netstat -an`, Collect: collectWindowsConnectionsCheck},
@@ -329,6 +382,19 @@ func windowsBenchmarkCollectorSpecs() []windowsBenchmarkCollectorSpec {
 		{ID: "10", SectionType: "display", Command: `wmic share get description,name,path`, Collect: collectWindowsSharesCheck},
 		{ID: "7", SectionType: "display", Command: `del /f/s/q %tmp%\\NSF{nsf_tm}_*.{log,txt,vbs,bat}`, Collect: collectWindowsCleanupCheck},
 	}
+}
+
+func filterWindowsBenchmarkCollectorSpecs(specs []windowsBenchmarkCollectorSpec, ruleIndex map[string]benchmarkRule) []windowsBenchmarkCollectorSpec {
+	if len(ruleIndex) == 0 {
+		return specs
+	}
+	filtered := make([]windowsBenchmarkCollectorSpec, 0, len(specs))
+	for _, spec := range specs {
+		if _, ok := ruleIndex[strings.TrimSpace(spec.ID)]; ok {
+			filtered = append(filtered, spec)
+		}
+	}
+	return filtered
 }
 
 func collectWindowsHostNameCheck(_ context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
@@ -681,7 +747,7 @@ func collectWindowsHotfixesCheck(ctx context.Context, state *windowsBenchmarkCol
 
 func collectWindowsCleanupCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
 	return benchmarkCheckResult{
-		Actual:   "native cleanup not required",
+		Actual:   "无需清理临时工件",
 		Evidence: "native cleanup not required",
 		Eval: map[string]any{
 			"cleanup_required": false,
@@ -772,9 +838,9 @@ func collectWindowsEveryoneShareCheck(_ context.Context, state *windowsBenchmark
 		}
 	}
 
-	actual := "no Everyone share permissions detected"
+	actual := "未检测到 Everyone 共享权限"
 	if !everyoneAbsent {
-		actual = fmt.Sprintf("Everyone present on shares: %s", strings.Join(offenders, ", "))
+		actual = fmt.Sprintf("检测到 Everyone 共享权限：%s", strings.Join(offenders, ", "))
 	}
 	return benchmarkCheckResult{
 		Actual:   actual,
@@ -859,6 +925,22 @@ func collectWindowsAuditPolicyChangeCheck(ctx context.Context, state *windowsBen
 
 func collectWindowsAuditAccountManageCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
 	return collectWindowsPolicyCheck(ctx, state, "AuditAccountManage", "event_audit", "AuditAccountManage")
+}
+
+func collectWindowsAuditProcessTrackingCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsPolicyCheck(ctx, state, "AuditProcessTracking", "event_audit", "AuditProcessTracking")
+}
+
+func collectWindowsAuditPrivilegeUseCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsPolicyCheck(ctx, state, "AuditPrivilegeUse", "event_audit", "AuditPrivilegeUse")
+}
+
+func collectWindowsAuditDSAccessCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsPolicyCheck(ctx, state, "AuditDSAccess", "event_audit", "AuditDSAccess")
+}
+
+func collectWindowsAuditObjectAccessCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsPolicyCheck(ctx, state, "AuditObjectAccess", "event_audit", "AuditObjectAccess")
 }
 
 func collectWindowsEnableLUACheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
@@ -993,7 +1075,380 @@ func collectWindowsAdminAccountDisabledCheck(ctx context.Context, state *windows
 	return collectWindowsPolicyCheck(ctx, state, "EnableAdminAccount", "system_access", "EnableAdminAccount")
 }
 
-func writeWindowsBenchmarkTraceXML(workingRoot string, state *windowsBenchmarkCollectorState, checks []benchmarkCheckResult) (string, error) {
+func collectWindowsEnablePMTUDiscoveryCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "EnablePMTUDiscovery")
+}
+
+func collectWindowsPerformRouterDiscoveryCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "PerformRouterDiscovery")
+}
+
+func collectWindowsEnableDeadGWDetectCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "EnableDeadGWDetect")
+}
+
+func collectWindowsEnableICMPRedirectCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "EnableICMPRedirect")
+}
+
+func collectWindowsDisableIPSourceRoutingCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "DisableIPSourceRouting")
+}
+
+func collectWindowsAutoAdminLogonCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`, registry.QUERY_VALUE)
+	if err != nil {
+		return benchmarkCheckResult{}, err
+	}
+	defer key.Close()
+
+	value, _, err := key.GetStringValue("AutoAdminLogon")
+	if err != nil {
+		value = "0"
+	}
+	value = strings.TrimSpace(value)
+	return benchmarkCheckResult{
+		Actual: fmt.Sprintf("AutoAdminLogon=%s", value),
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"path":  `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`,
+			"value": "AutoAdminLogon",
+			"text":  value,
+		}),
+		Eval: map[string]any{
+			"value":     value,
+			"int_value": parsePolicyInt(value),
+		},
+	}, nil
+}
+
+func collectWindowsW32TimeRunningCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "w32time")
+}
+
+func collectWindowsW32TimeAutoStartCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "w32time")
+}
+
+func collectWindowsNtpServerCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryStringValueCheck(`SYSTEM\CurrentControlSet\Services\W32Time\Parameters`, "NtpServer")
+}
+
+func collectWindowsSMTPServiceStoppedCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "SMTPSVC")
+}
+
+func collectWindowsSimpTcpServiceStoppedCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "SimpTcp")
+}
+
+func collectWindowsMSMQServiceStoppedCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "MSMQ")
+}
+
+func collectWindowsNoDriveTypeAutoRunCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer`, "NoDriveTypeAutoRun")
+}
+
+func collectWindowsSynAttackProtectCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "SynAttackProtect")
+}
+
+func collectWindowsTcpMaxHalfOpenRetriedCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "TcpMaxHalfOpenRetried")
+}
+
+func collectWindowsTcpMaxHalfOpenCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "TcpMaxHalfOpen")
+}
+
+func collectWindowsTcpMaxConnectResponseRetransmissionsCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "TcpMaxConnectResponseRetransmissions")
+}
+
+func collectWindowsEnableSecurityFiltersCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "EnableSecurityFilters")
+}
+
+func collectWindowsTcpMaxPortsExhaustedCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`, "TcpMaxPortsExhausted")
+}
+
+func collectWindowsAUOptionsCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheckAtPaths([]string{
+		`SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU`,
+		`SOFTWARE\WOW6432Node\Policies\Microsoft\Windows\WindowsUpdate\AU`,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update`,
+	}, "AUOptions")
+}
+
+func collectWindowsDEPPolicyCheck(ctx context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	type depRow struct {
+		Value int64 `json:"DataExecutionPrevention_SupportPolicy"`
+	}
+	rows, err := runWindowsPowerShellArray[depRow](ctx, `
+if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+    $source = Get-CimInstance -ClassName Win32_OperatingSystem
+} elseif (Get-Command Get-WmiObject -ErrorAction SilentlyContinue) {
+    $source = Get-WmiObject -Class Win32_OperatingSystem
+} else {
+    $source = @()
+}
+$items = $source | Select-Object @{Name='DataExecutionPrevention_SupportPolicy';Expression={[int64]$_.DataExecutionPrevention_SupportPolicy}}
+if (@($items).Count -eq 0) { '[]' } else { @($items) | ConvertTo-Json -Compress -Depth 3 }
+`)
+	if err != nil {
+		return benchmarkCheckResult{}, err
+	}
+	value := int64(-1)
+	if len(rows) > 0 {
+		value = rows[0].Value
+	}
+	return benchmarkCheckResult{
+		Actual: fmt.Sprintf("DataExecutionPrevention_SupportPolicy=%d", value),
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"value": value,
+		}),
+		Eval: map[string]any{
+			"int_value": value,
+			"value":     strconv.FormatInt(value, 10),
+		},
+	}, nil
+}
+
+func collectWindowsSMBPort445Check(_ context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	if state.connections == nil {
+		rows, err := collectWindowsNetConnections()
+		if err != nil {
+			return benchmarkCheckResult{}, err
+		}
+		state.connections = rows
+	}
+	listening := false
+	for _, row := range state.connections {
+		if row.LocalPort != 445 {
+			continue
+		}
+		if strings.EqualFold(row.State, "LISTEN") || strings.EqualFold(row.State, "LISTENING") {
+			listening = true
+			break
+		}
+	}
+	return benchmarkCheckResult{
+		Actual: fmt.Sprintf("445 端口监听=%t", listening),
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"listening": listening,
+		}),
+		Eval: map[string]any{
+			"listening":    listening,
+			"not_listening": !listening,
+		},
+	}, nil
+}
+
+func collectWindowsRasManServiceCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "RasMan")
+}
+
+func collectWindowsDhcpServiceCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "Dhcp")
+}
+
+func collectWindowsWINSServiceCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "WINS")
+}
+
+func collectWindowsDHCPServerServiceCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsNamedServiceCheck(ctx, state, "DHCPServer")
+}
+
+func collectWindowsSystemEventLogMaxSizeCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Eventlog\System`, "MaxSize")
+}
+
+func collectWindowsSystemEventLogRetentionCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Eventlog\System`, "Retention")
+}
+
+func collectWindowsApplicationEventLogMaxSizeCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Eventlog\Application`, "MaxSize")
+}
+
+func collectWindowsApplicationEventLogRetentionCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Eventlog\Application`, "Retention")
+}
+
+func collectWindowsSecurityEventLogRetentionCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Eventlog\Security`, "Retention")
+}
+
+func collectWindowsSecurityEventLogMaxSizeCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Services\Eventlog\Security`, "MaxSize")
+}
+
+func collectWindowsNetworkLogonRightCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	policy, err := state.securityPolicy(ctx)
+	if err != nil {
+		return benchmarkCheckResult{}, err
+	}
+	items := policy.PrivilegeRights["SeNetworkLogonRight"]
+	actual := fmt.Sprintf("SeNetworkLogonRight=%s", strings.Join(items, ","))
+	return benchmarkCheckResult{
+		Actual: actual,
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"key":   "SeNetworkLogonRight",
+			"items": items,
+		}),
+		Eval: map[string]any{
+			"value": strings.Join(items, ","),
+		},
+	}, nil
+}
+
+func collectWindowsRDPPortCheck(_ context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	return collectWindowsRegistryIntValueCheck(`SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp`, "PortNumber")
+}
+
+func collectWindowsRegistryIntValueCheck(keyPath, valueName string) (benchmarkCheckResult, error) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return benchmarkCheckResult{}, err
+	}
+	defer key.Close()
+
+	value, _, err := key.GetIntegerValue(valueName)
+	if err != nil {
+		return benchmarkCheckResult{
+			Actual: fmt.Sprintf("%s=", valueName),
+			Evidence: mustMarshalPrettyJSON(map[string]any{
+				"path":      keyPath,
+				"value":     valueName,
+				"int_value": -1,
+			}),
+			Eval: map[string]any{
+				"value":     "",
+				"int_value": int64(-1),
+			},
+		}, nil
+	}
+
+	actual := fmt.Sprintf("%s=%d", valueName, value)
+	return benchmarkCheckResult{
+		Actual: actual,
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"path":      keyPath,
+			"value":     valueName,
+			"int_value": value,
+		}),
+		Eval: map[string]any{
+			"value":     strconv.FormatUint(value, 10),
+			"int_value": int64(value),
+		},
+	}, nil
+}
+
+func collectWindowsRegistryIntValueCheckAtPaths(paths []string, valueName string) (benchmarkCheckResult, error) {
+	for _, path := range paths {
+		result, err := collectWindowsRegistryIntValueCheck(path, valueName)
+		if err == nil {
+			return result, nil
+		}
+	}
+	return benchmarkCheckResult{
+		Actual: fmt.Sprintf("%s=", valueName),
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"paths":     paths,
+			"value":     valueName,
+			"int_value": -1,
+		}),
+		Eval: map[string]any{
+			"value":     "",
+			"int_value": int64(-1),
+		},
+	}, nil
+}
+
+func collectWindowsRegistryStringValueCheck(keyPath, valueName string) (benchmarkCheckResult, error) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return benchmarkCheckResult{}, err
+	}
+	defer key.Close()
+
+	value, _, err := key.GetStringValue(valueName)
+	if err != nil {
+		value = ""
+	}
+	value = strings.TrimSpace(value)
+
+	actual := fmt.Sprintf("%s=%s", valueName, value)
+	return benchmarkCheckResult{
+		Actual: actual,
+		Evidence: mustMarshalPrettyJSON(map[string]any{
+			"path":  keyPath,
+			"value": valueName,
+			"text":  value,
+		}),
+		Eval: map[string]any{
+			"value":     value,
+			"int_value": parsePolicyInt(value),
+		},
+	}, nil
+}
+
+func collectWindowsNamedServiceCheck(ctx context.Context, state *windowsBenchmarkCollectorState, serviceName string) (benchmarkCheckResult, error) {
+	status, err := windowsServiceStatus(ctx, state, serviceName)
+	if err != nil {
+		return benchmarkCheckResult{}, err
+	}
+
+	running := strings.EqualFold(strings.TrimSpace(status.State), "Running")
+	startMode := strings.TrimSpace(status.StartMode)
+	actual := fmt.Sprintf("%s 服务状态=%s，启动类型=%s", serviceName, firstNonEmpty(status.State, "unknown"), firstNonEmpty(startMode, "unknown"))
+	return benchmarkCheckResult{
+		Actual:   actual,
+		Evidence: mustMarshalPrettyJSON(status),
+		Eval: map[string]any{
+			"service_name": serviceName,
+			"state":        status.State,
+			"start_mode":   startMode,
+			"running":      running,
+			"not_running":  !running,
+		},
+	}, nil
+}
+
+func windowsServiceStatus(ctx context.Context, state *windowsBenchmarkCollectorState, serviceName string) (windowsNamedServiceStatus, error) {
+	if state.namedServices == nil {
+		state.namedServices = make(map[string]windowsNamedServiceStatus)
+	}
+	if cached, ok := state.namedServices[serviceName]; ok {
+		return cached, nil
+	}
+
+	rows, err := runWindowsPowerShellArray[windowsNamedServiceStatus](ctx, fmt.Sprintf(`
+if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+    $source = Get-CimInstance -ClassName Win32_Service -Filter "Name='%s'"
+} elseif (Get-Command Get-WmiObject -ErrorAction SilentlyContinue) {
+    $source = Get-WmiObject -Class Win32_Service -Filter "Name='%s'"
+} else {
+    $source = @()
+}
+$items = $source | Select-Object Name, State, StartMode
+if (@($items).Count -eq 0) { '[]' } else { @($items) | ConvertTo-Json -Compress -Depth 3 }
+`, serviceName, serviceName))
+	if err != nil {
+		return windowsNamedServiceStatus{}, err
+	}
+
+	status := windowsNamedServiceStatus{Name: serviceName}
+	if len(rows) > 0 {
+		status = rows[0]
+	}
+	state.namedServices[serviceName] = status
+	return status, nil
+}
+
+func writeWindowsBenchmarkTraceXML(workingRoot string, level BaselineLevel, state *windowsBenchmarkCollectorState, checks []benchmarkCheckResult) (string, error) {
 	profile := nativeWindowsProfile()
 	sections := map[string][]xmlItem{
 		"auto":    {},
@@ -1035,7 +1490,7 @@ func writeWindowsBenchmarkTraceXML(workingRoot string, state *windowsBenchmarkCo
 	fileName := fmt.Sprintf("%s_%s_chk.xml", hostPart, profile.uuid)
 	outPath := filepath.Join(workingRoot, fileName)
 	data := append([]byte(xml.Header), payload...)
-	data = append(data, []byte(windowsTemplateExtraComment())...)
+	data = append(data, []byte(windowsTemplateExtraComment(level))...)
 	data = append(data, '\n')
 	if err := os.WriteFile(outPath, data, 0o644); err != nil {
 		return "", fmt.Errorf("write windows benchmark trace xml failed: %w", err)
@@ -1322,27 +1777,27 @@ func collectWindowsAntivirusInfo(ctx context.Context, services []*startupscan.St
 	}, nil
 }
 
-func profileUUIDForTemplate(template Template) string {
-	profile, err := nativeProfileForTemplate(template)
+func profileUUIDForTemplate(template Template, level BaselineLevel) string {
+	profile, err := nativeProfileForTemplateLevel(template, level)
 	if err != nil {
 		return ""
 	}
 	return profile.uuid
 }
 
-func profileTimeForTemplate(template Template) string {
-	profile, err := nativeProfileForTemplate(template)
+func profileTimeForTemplate(template Template, level BaselineLevel) string {
+	profile, err := nativeProfileForTemplateLevel(template, level)
 	if err != nil {
 		return ""
 	}
 	return profile.templateTime
 }
 
-func windowsTemplateExtraComment() string {
+func windowsTemplateExtraComment(level BaselineLevel) string {
 	return "<!--\n" +
 		"    <extra>\n" +
 		fmt.Sprintf("        <product>%s</product>\n", windowsTemplateInfo.Product) +
-		fmt.Sprintf("        <template>%s</template>\n", windowsTemplateInfo.TemplateName) +
+		fmt.Sprintf("        <template>%s</template>\n", windowsTemplateDisplayName(level)) +
 		fmt.Sprintf("        <templatever>%s</templatever>\n", windowsTemplateInfo.TemplateVersion) +
 		fmt.Sprintf("        <industry>%s</industry>\n", windowsTemplateInfo.Industry) +
 		fmt.Sprintf("        <version>%s</version>\n", windowsTemplateInfo.SystemVersion) +
@@ -1567,7 +2022,7 @@ func summarizeStartupCommands(entries []windowsStartupCommandEntry) string {
 		names = append(names, entry.Name)
 	}
 	sort.Strings(names)
-	return summarizeNamedCount("startup entries", names, 8)
+	return summarizeNamedCount("启动项", names, 8)
 }
 
 func summarizeStartupCommandRows(entries []windowsStartupCommandRecord) string {
@@ -1578,7 +2033,7 @@ func summarizeStartupCommandRows(entries []windowsStartupCommandRecord) string {
 		}
 	}
 	sort.Strings(names)
-	return summarizeNamedCount("startup entries", names, 8)
+	return summarizeNamedCount("启动项", names, 8)
 }
 
 func summarizeWindowsConnections(rows []windowsNetConnection) string {
@@ -1591,7 +2046,7 @@ func summarizeWindowsConnections(rows []windowsNetConnection) string {
 			udpCount++
 		}
 	}
-	return fmt.Sprintf("%d connections (%d TCP, %d UDP)", len(rows), tcpCount, udpCount)
+	return fmt.Sprintf("检测到 %d 条网络连接（TCP %d，UDP %d）", len(rows), tcpCount, udpCount)
 }
 
 func summarizeWindowsShares(shares []windowsShareInfo) string {
@@ -1600,7 +2055,7 @@ func summarizeWindowsShares(shares []windowsShareInfo) string {
 		names = append(names, share.Name)
 	}
 	sort.Strings(names)
-	return summarizeNamedCount("shares", names, 8)
+	return summarizeNamedCount("共享", names, 8)
 }
 
 func summarizeWindowsHotfixes(items []windowsHotfixInfo) string {
@@ -1610,15 +2065,15 @@ func summarizeWindowsHotfixes(items []windowsHotfixInfo) string {
 			ids = append(ids, item.HotFixID)
 		}
 	}
-	return summarizeNamedCount("hotfixes", ids, 8)
+	return summarizeNamedCount("补丁", ids, 8)
 }
 
 func summarizeWindowsFirewall(info windowsFirewallInfo) string {
 	var states []string
 	for _, profile := range info.Profiles {
-		state := "disabled"
+		state := "未启用"
 		if profile.Enabled {
-			state = "enabled"
+			state = "已启用"
 		}
 		states = append(states, profile.Name+"="+state)
 	}
@@ -1627,7 +2082,7 @@ func summarizeWindowsFirewall(info windowsFirewallInfo) string {
 
 func summarizeWindowsFilesystem(info windowsFilesystemInfo) string {
 	if info.AllNTFS {
-		return "All fixed drives use NTFS"
+		return "所有固定磁盘均使用 NTFS"
 	}
 	var nonNTFS []string
 	for _, drive := range info.Drives {
@@ -1636,9 +2091,9 @@ func summarizeWindowsFilesystem(info windowsFilesystemInfo) string {
 		}
 	}
 	if len(nonNTFS) == 0 {
-		return "No fixed drives detected"
+		return "未检测到固定磁盘"
 	}
-	return "Non-NTFS fixed drives: " + strings.Join(nonNTFS, ", ")
+	return "检测到非 NTFS 固定磁盘：" + strings.Join(nonNTFS, ", ")
 }
 
 func summarizeWindowsAntivirus(info windowsAntivirusInfo) string {
@@ -1647,9 +2102,9 @@ func summarizeWindowsAntivirus(info windowsAntivirusInfo) string {
 		merged = append(merged, info.ProductHints...)
 		merged = append(merged, info.ServiceIndicators...)
 		merged = append(merged, info.ProcessIndicators...)
-		return summarizeNamedCount("antivirus indicators", merged, 8)
+		return summarizeNamedCount("杀毒/防病毒迹象", merged, 8)
 	}
-	return "No antivirus indicator detected"
+	return "未检测到杀毒/防病毒迹象"
 }
 
 func derefString(value *string) string {
@@ -1705,9 +2160,9 @@ func windowsFallbackServiceState(enabled *bool) string {
 
 var windowsTemplateInfo = windowsTemplateMetadata{
 	Product:         "BVS",
-	TemplateName:    "Windows 閰嶇疆瑙勮寖_S1A1G1",
+	TemplateName:    "Windows 配置规范_S1A1G1",
 	TemplateVersion: "V6.0R03F02.0007",
-	Industry:        "绛夌骇淇濇姢2.0",
+	Industry:        "等级保护2.0",
 	SystemVersion:   "V6.0R03F03SP07",
 	Hash:            "42F1-91D7-00CD-EE46",
 }

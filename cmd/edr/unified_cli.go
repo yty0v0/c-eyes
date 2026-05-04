@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"bufio"
@@ -159,9 +159,10 @@ type sbomParseResult struct {
 }
 
 type benchmarkParseResult struct {
-	ShowHelp bool
-	Template benchmark.Template
-	RiskArgs []string
+	ShowHelp      bool
+	Template      benchmark.Template
+	BaselineLevel benchmark.BaselineLevel
+	RiskArgs      []string
 }
 
 func runUnifiedCLI(rawArgs []string) int {
@@ -519,8 +520,9 @@ func runBenchmarkCLI(args []string, global globalCLIOptions) int {
 	defer progress.Done()
 
 	result, err := benchmark.Scan(context.Background(), benchmark.ScanOptions{
-		Template: parsed.Template,
-		Progress: scopedProgressUpdate(progress, "scan"),
+		Template:      parsed.Template,
+		BaselineLevel: parsed.BaselineLevel,
+		Progress:      scopedProgressUpdate(progress, "scan"),
 	})
 	if err != nil {
 		progress.PrintLine(err.Error())
@@ -823,6 +825,8 @@ func parseBenchmarkArgs(args []string) (benchmarkParseResult, error) {
 
 	templateVal := string(benchmark.TemplateAuto)
 	fs.StringVar(&templateVal, "template", string(benchmark.TemplateAuto), "benchmark template: auto|windows|linux|euleros|kylin")
+	baselineLevelVal := string(benchmark.BaselineLevel1)
+	fs.StringVar(&baselineLevelVal, "baseline-level", string(benchmark.BaselineLevel1), "benchmark baseline level: 1|2|3|4")
 
 	if err := fs.Parse(scanArgs); err != nil {
 		return result, fmt.Errorf("invalid argument: %v", err)
@@ -835,7 +839,12 @@ func parseBenchmarkArgs(args []string) (benchmarkParseResult, error) {
 	if err != nil {
 		return result, err
 	}
+	level, err := benchmark.NormalizeBaselineLevel(baselineLevelVal)
+	if err != nil {
+		return result, err
+	}
 	result.Template = normalized
+	result.BaselineLevel = level
 	return result, nil
 }
 
@@ -3909,49 +3918,47 @@ func payloadToRows(payload any) ([]map[string]any, error) {
 	return []map[string]any{row}, nil
 }
 
-func writeCSVFile(path string, rows []map[string]any) error {
-	return writeCSVFileInternal(path, rows, false)
-}
-
 func benchmarkRowsForDisplay(rows []benchmark.Row) []map[string]any {
-	out := make([]map[string]any, 0, len(rows))
+	displayRows := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		displayStatus := benchmarkDisplayStatus(row.Status, row.StatusReason)
-		evidenceSummary := benchmarkEvidenceSummary(row.Actual, row.Evidence)
-		item := map[string]any{
-			"检查项编号": benchmarkDisplayCheckID(row.Template, row.CheckID, row.StatusReason),
-			"检查项名称": strings.TrimSpace(row.CheckName),
-			"分类":    benchmarkDisplayCategory(row.Category),
-			"基线要求":  strings.TrimSpace(row.Expected),
-			"实际结果":  strings.TrimSpace(row.Actual),
-			"判定结果":  displayStatus,
-			"风险等级":  benchmarkDisplaySeverity(row.Severity),
-			"证据摘要":  evidenceSummary,
+		display := map[string]any{
+			"检查项编号": benchmarkDisplayCheckID(row.Template, row.CheckID),
+			"检查项名称": row.CheckName,
+			"分类":     strings.TrimSpace(row.Category),
+			"基线要求":   row.Expected,
+			"实际结果":   row.Actual,
+			"判定结果":   benchmarkDisplayStatus(row.Status, row.StatusReason),
 		}
-		if recommendation := benchmarkDisplayRecommendation(row.Recommendation, displayStatus); recommendation != "" {
-			item["整改建议"] = recommendation
+		if severity := benchmarkDisplaySeverityForRow(row.Status, row.StatusReason, row.Severity); severity != "" {
+			display["风险等级"] = severity
 		}
-		out = append(out, item)
+		if recommendation := benchmarkDisplayRecommendation(row.Status, row.StatusReason, row.Recommendation); recommendation != "" {
+			display["整改建议"] = recommendation
+		}
+		displayRows = append(displayRows, display)
 	}
-	return out
+	return displayRows
 }
 
-func benchmarkDisplayCheckID(template, rawID, statusReason string) string {
-	rawID = strings.TrimSpace(rawID)
-	if rawID == "" {
+func benchmarkDisplayCheckID(template string, raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
 		return ""
 	}
-	prefix := benchmarkTemplateCode(template)
-	if prefix == "" {
-		prefix = "GEN"
+	code := benchmarkTemplateCode(template)
+	if code == "" {
+		return trimmed
 	}
-	if isDigitsOnly(rawID) {
-		return fmt.Sprintf("%s-DISP-%03s", prefix, rawID)
+	if isDigitsOnly(trimmed) {
+		if parsed, err := strconv.Atoi(trimmed); err == nil {
+			return fmt.Sprintf("%s-DISP-%03d", code, parsed)
+		}
 	}
-	if strings.HasPrefix(strings.ToUpper(rawID), "W-") && prefix == "WIN" {
-		return "WIN-" + rawID[2:]
+	parts := strings.SplitN(trimmed, "-", 2)
+	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+		return fmt.Sprintf("%s-%s", code, strings.TrimSpace(parts[1]))
 	}
-	return rawID
+	return trimmed
 }
 
 func benchmarkTemplateCode(template string) string {
@@ -3985,94 +3992,55 @@ func benchmarkNormalizeLowerTrim(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-func benchmarkDisplayStatus(status, reason string) string {
+func benchmarkDisplayStatus(status string, statusReason string) string {
 	switch benchmarkNormalizeLowerTrim(status) {
 	case "pass":
 		return "符合"
 	case "fail":
 		return "不符合"
-	default:
-		switch benchmarkNormalizeLowerTrim(reason) {
-		case "informational_check":
+	case "unknown":
+		if benchmarkNormalizeLowerTrim(statusReason) == "informational_check" {
 			return "信息项"
-		case "execution_error":
-			return "检查失败"
-		default:
-			return "待确认"
 		}
+		return "待确认"
+	default:
+		return strings.TrimSpace(status)
 	}
 }
 
-func benchmarkDisplaySeverity(value string) string {
-	switch benchmarkNormalizeLowerTrim(value) {
-	case "high":
+func benchmarkDisplaySeverity(severity string) string {
+	switch benchmarkNormalizeLowerTrim(severity) {
+	case "critical", "high":
 		return "高"
 	case "medium":
 		return "中"
 	case "low":
 		return "低"
-	case "info":
+	case "info", "informational":
 		return "提示"
 	default:
-		return strings.TrimSpace(value)
+		return strings.TrimSpace(severity)
 	}
 }
 
-func benchmarkDisplayCategory(value string) string {
-	switch benchmarkNormalizeLowerTrim(value) {
-	case "security":
-		return "安全配置"
-	case "password_policy":
-		return "密码策略"
-	case "lockout_policy":
-		return "锁定策略"
-	case "account":
-		return "账户管理"
-	case "service":
-		return "系统服务"
-	case "system":
-		return "系统信息"
-	case "network":
-		return "网络信息"
-	case "patch":
-		return "补丁更新"
-	case "share":
-		return "共享配置"
-	case "process":
-		return "进程信息"
-	case "filesystem":
-		return "文件系统"
-	case "meta":
-		return "元信息"
-	default:
-		return strings.TrimSpace(value)
-	}
-}
-
-func benchmarkDisplayRecommendation(recommendation, displayStatus string) string {
-	recommendation = strings.TrimSpace(recommendation)
-	if recommendation == "" {
+func benchmarkDisplaySeverityForRow(status string, statusReason string, severity string) string {
+	if benchmarkNormalizeLowerTrim(status) != "fail" {
 		return ""
 	}
-	switch displayStatus {
-	case "不符合", "待确认", "检查失败":
-		return recommendation
-	default:
-		return ""
-	}
+	return benchmarkDisplaySeverity(severity)
 }
 
-func benchmarkEvidenceSummary(actual, evidence string) string {
-	actual = strings.TrimSpace(actual)
-	if actual != "" {
-		return actual
+func benchmarkDisplayRecommendation(status string, statusReason string, recommendation string) string {
+	if benchmarkNormalizeLowerTrim(status) != "fail" {
+		return ""
 	}
-	evidence = strings.TrimSpace(evidence)
-	if len(evidence) <= 160 {
-		return evidence
-	}
-	return evidence[:160] + "..."
+	return strings.TrimSpace(recommendation)
 }
+
+func writeCSVFile(path string, rows []map[string]any) error {
+	return writeCSVFileInternal(path, rows, false)
+}
+
 
 func writeCSVFileWithBOM(path string, rows []map[string]any) error {
 	return writeCSVFileInternal(path, rows, true)
@@ -4153,9 +4121,8 @@ func writeXLSXFile(path string, rows []map[string]any) error {
 }
 
 type benchmarkSummaryMetricRow struct {
-	Metric  string
-	Value   string
-	Display string
+    Metric  string
+    Display string
 }
 
 func printBenchmarkSummary(progress *terminalProgress, result benchmark.ScanResult) {
@@ -4163,169 +4130,141 @@ func printBenchmarkSummary(progress *terminalProgress, result benchmark.ScanResu
 		return
 	}
 	progress.PrintLine("benchmark summary:")
-	progress.PrintLine(fmt.Sprintf("template         %s", strings.TrimSpace(result.Template)))
-	progress.PrintLine("metric           value      display")
-	for _, row := range buildBenchmarkSummaryMetricRows(result.Summary, false) {
-		progress.PrintLine(fmt.Sprintf("%-16s %-10s %s", row.Metric, row.Value, row.Display))
+	progress.PrintLine(fmt.Sprintf("template: %s", strings.TrimSpace(result.Template)))
+	progress.PrintLine("")
+	progress.PrintLine("counts")
+	for _, row := range buildBenchmarkSummaryCLICountRows(result.Summary) {
+		progress.PrintLine(fmt.Sprintf("  %-18s %s", row.Metric, row.Display))
+	}
+	progress.PrintLine("")
+	progress.PrintLine("rate")
+	for _, row := range buildBenchmarkSummaryCLIRateRows(result.Summary) {
+		progress.PrintLine(fmt.Sprintf("  %-18s %s", row.Metric, row.Display))
 	}
 }
 
 func extractBenchmarkSummary(payload any) (benchmark.Summary, bool) {
-	switch typed := payload.(type) {
-	case benchmark.ScanResult:
-		return typed.Summary, true
-	case *benchmark.ScanResult:
-		if typed == nil {
-			return benchmark.Summary{}, false
-		}
-		return typed.Summary, true
-	default:
-		return benchmark.Summary{}, false
-	}
+    switch typed := payload.(type) {
+    case benchmark.ScanResult:
+        return typed.Summary, true
+    case *benchmark.ScanResult:
+        if typed == nil {
+            return benchmark.Summary{}, false
+        }
+        return typed.Summary, true
+    default:
+        return benchmark.Summary{}, false
+    }
 }
 
 func buildBenchmarkSummaryMetricRows(summary benchmark.Summary, localized bool) []benchmarkSummaryMetricRow {
-	formatRate := func(value float64) benchmarkSummaryMetricRow {
-		raw := strconv.FormatFloat(value, 'f', 6, 64)
-		return benchmarkSummaryMetricRow{
-			Value:   raw,
-			Display: fmt.Sprintf("%.2f%%", value*100),
-		}
-	}
-
-	compliance := formatRate(summary.ComplianceRate)
-	coverage := formatRate(summary.CoverageRate)
-	unknown := formatRate(summary.UnknownRate)
-
-	metric := func(english, chinese string) string {
-		if localized {
-			return chinese
-		}
-		return english
-	}
-
-	return []benchmarkSummaryMetricRow{
-		{Metric: metric("total", "总检查项数"), Value: strconv.Itoa(summary.Total), Display: strconv.Itoa(summary.Total)},
-		{Metric: metric("pass", "符合项"), Value: strconv.Itoa(summary.Pass), Display: strconv.Itoa(summary.Pass)},
-		{Metric: metric("fail", "不符合项"), Value: strconv.Itoa(summary.Fail), Display: strconv.Itoa(summary.Fail)},
-		{Metric: metric("unknown", "信息/待确认项"), Value: strconv.Itoa(summary.Unknown), Display: strconv.Itoa(summary.Unknown)},
-		{Metric: metric("evaluated", "可判定项"), Value: strconv.Itoa(summary.Evaluated), Display: strconv.Itoa(summary.Evaluated)},
-		{Metric: metric("compliance_rate", "合规率"), Value: compliance.Value, Display: compliance.Display},
-		{Metric: metric("coverage_rate", "判定覆盖率"), Value: coverage.Value, Display: coverage.Display},
-		{Metric: metric("unknown_rate", "信息项占比"), Value: unknown.Value, Display: unknown.Display},
-	}
+    metric := func(english, chinese string) string {
+        if localized {
+            return chinese
+        }
+        return english
+    }
+    rate := func(value float64) string {
+        return fmt.Sprintf("%.2f%%", value*100)
+    }
+    return []benchmarkSummaryMetricRow{
+        {Metric: metric("total", "总检查项数"), Display: strconv.Itoa(summary.Total)},
+        {Metric: metric("pass", "符合项"), Display: strconv.Itoa(summary.Pass)},
+        {Metric: metric("fail", "不符合项"), Display: strconv.Itoa(summary.Fail)},
+        {Metric: metric("informational", "信息项"), Display: strconv.Itoa(summary.Informational)},
+        {Metric: metric("pending", "待确认项"), Display: strconv.Itoa(summary.Pending)},
+        {Metric: metric("evaluated", "可判定项"), Display: strconv.Itoa(summary.Evaluated)},
+        {Metric: metric("compliance_rate", "合规率"), Display: rate(summary.ComplianceRate)},
+        {Metric: metric("informational_rate", "信息项占比"), Display: rate(summary.InformationalRate)},
+        {Metric: metric("pending_rate", "待确认项占比"), Display: rate(summary.PendingRate)},
+    }
 }
 
 func writeBenchmarkSummaryCSVSidecar(csvPath string, payload any) (string, error) {
-	summary, ok := extractBenchmarkSummary(payload)
-	if !ok {
-		return "", nil
-	}
-
-	summaryPath := strings.TrimSuffix(csvPath, filepath.Ext(csvPath)) + ".summary.csv"
-	file, err := os.Create(summaryPath)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = file.Close() }()
-
-	if shouldWriteUTF8BOMForBenchmarkFiles(payload) {
-		if _, err := file.Write(utf8BOM); err != nil {
-			return "", err
-		}
-	}
-	writer := csv.NewWriter(file)
-	if err := writer.Write([]string{"指标", "原始值", "展示值"}); err != nil {
-		return "", err
-	}
-	for _, row := range buildBenchmarkSummaryMetricRows(summary, true) {
-		if err := writer.Write([]string{row.Metric, row.Value, row.Display}); err != nil {
-			return "", err
-		}
-	}
-	writer.Flush()
-	if err := writer.Error(); err != nil {
-		return "", err
-	}
-	return summaryPath, nil
+    summary, ok := extractBenchmarkSummary(payload)
+    if !ok {
+        return "", nil
+    }
+    summaryPath := strings.TrimSuffix(csvPath, filepath.Ext(csvPath)) + ".summary.csv"
+    file, err := os.Create(summaryPath)
+    if err != nil {
+        return "", err
+    }
+    defer func() { _ = file.Close() }()
+    if shouldWriteUTF8BOMForBenchmarkFiles(payload) {
+        if _, err := file.Write(utf8BOM); err != nil {
+            return "", err
+        }
+    }
+    writer := csv.NewWriter(file)
+    for _, row := range buildBenchmarkSummaryMetricRows(summary, true) {
+        if err := writer.Write([]string{row.Metric, row.Display}); err != nil {
+            return "", err
+        }
+    }
+    writer.Flush()
+    if err := writer.Error(); err != nil {
+        return "", err
+    }
+    return summaryPath, nil
 }
 
 func appendBenchmarkSummarySheetToXLSXFiles(paths []string, payload any) error {
-	summary, ok := extractBenchmarkSummary(payload)
-	if !ok {
-		return nil
-	}
-	for _, path := range paths {
-		if err := appendBenchmarkSummarySheet(path, summary); err != nil {
-			return err
-		}
-	}
-	return nil
+    summary, ok := extractBenchmarkSummary(payload)
+    if !ok {
+        return nil
+    }
+    for _, path := range paths {
+        if err := appendBenchmarkSummarySheet(path, summary); err != nil {
+            return err
+        }
+    }
+    return nil
 }
 
 func appendBenchmarkSummarySheet(path string, summary benchmark.Summary) error {
-	file, err := excelize.OpenFile(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	const summarySheet = "summary"
-	const resultsSheet = "results"
-	for _, name := range file.GetSheetList() {
-		if name == summarySheet {
-			if err := file.DeleteSheet(summarySheet); err != nil {
-				return err
-			}
-			break
-		}
-	}
-
-	sheetIdx, err := file.NewSheet(summarySheet)
-	if err != nil {
-		return err
-	}
-
-	if err := file.SetCellValue(summarySheet, "A1", "指标"); err != nil {
-		return err
-	}
-	if err := file.SetCellValue(summarySheet, "B1", "原始值"); err != nil {
-		return err
-	}
-	if err := file.SetCellValue(summarySheet, "C1", "展示值"); err != nil {
-		return err
-	}
-
-	rows := buildBenchmarkSummaryMetricRows(summary, true)
-	for i, row := range rows {
-		r := i + 2
-		if err := file.SetCellValue(summarySheet, fmt.Sprintf("A%d", r), row.Metric); err != nil {
-			return err
-		}
-		if err := file.SetCellValue(summarySheet, fmt.Sprintf("B%d", r), row.Value); err != nil {
-			return err
-		}
-		if err := file.SetCellValue(summarySheet, fmt.Sprintf("C%d", r), row.Display); err != nil {
-			return err
-		}
-	}
-
-	if err := file.SetColWidth(summarySheet, "A", "A", 24); err != nil {
-		return err
-	}
-	if err := file.SetColWidth(summarySheet, "B", "C", 16); err != nil {
-		return err
-	}
-
-	activeSheetIdx := sheetIdx
-	if resultsIdx, err := file.GetSheetIndex(resultsSheet); err == nil && resultsIdx >= 0 {
-		activeSheetIdx = resultsIdx
-	}
-	file.SetActiveSheet(activeSheetIdx)
-
-	return file.Save()
+    file, err := excelize.OpenFile(path)
+    if err != nil {
+        return err
+    }
+    defer func() { _ = file.Close() }()
+    const summarySheet = "summary"
+    const resultsSheet = "results"
+    for _, name := range file.GetSheetList() {
+        if name == summarySheet {
+            if err := file.DeleteSheet(summarySheet); err != nil {
+                return err
+            }
+            break
+        }
+    }
+    sheetIdx, err := file.NewSheet(summarySheet)
+    if err != nil {
+        return err
+    }
+    rows := buildBenchmarkSummaryMetricRows(summary, true)
+    for i, row := range rows {
+        r := i + 1
+        if err := file.SetCellValue(summarySheet, fmt.Sprintf("A%d", r), row.Metric); err != nil {
+            return err
+        }
+        if err := file.SetCellValue(summarySheet, fmt.Sprintf("B%d", r), row.Display); err != nil {
+            return err
+        }
+    }
+    if err := file.SetColWidth(summarySheet, "A", "A", 24); err != nil {
+        return err
+    }
+    if err := file.SetColWidth(summarySheet, "B", "B", 16); err != nil {
+        return err
+    }
+    activeSheetIdx := sheetIdx
+    if resultsIdx, err := file.GetSheetIndex(resultsSheet); err == nil && resultsIdx >= 0 {
+        activeSheetIdx = resultsIdx
+    }
+    file.SetActiveSheet(activeSheetIdx)
+    return file.Save()
 }
-
 func validateXLSXShape(dataRows int, columns int) error {
 	if columns > xlsxMaxColumns {
 		return fmt.Errorf("xlsx output exceeds column limit (%d > %d); use -o <file>.csv or -o <file>.json", columns, xlsxMaxColumns)
@@ -4370,7 +4309,6 @@ func orderDisplayHeaders(headers []string) []string {
 		"判定结果",
 		"风险等级",
 		"整改建议",
-		"证据摘要",
 	}
 	orderIndex := make(map[string]int, len(benchmarkOrder))
 	for i, key := range benchmarkOrder {
@@ -4660,6 +4598,25 @@ func printHostscanModuleHelp(module string) error {
 		})
 	default:
 		return fmt.Errorf("invalid argument: unknown hostscan module: %s", module)
+	}
+}
+
+func buildBenchmarkSummaryCLICountRows(summary benchmark.Summary) []benchmarkSummaryMetricRow {
+	return []benchmarkSummaryMetricRow{
+		{Metric: "total_checks", Display: strconv.Itoa(summary.Total)},
+		{Metric: "compliant", Display: strconv.Itoa(summary.Pass)},
+		{Metric: "non_compliant", Display: strconv.Itoa(summary.Fail)},
+		{Metric: "informational", Display: strconv.Itoa(summary.Informational)},
+		{Metric: "pending", Display: strconv.Itoa(summary.Pending)},
+	}
+}
+
+func buildBenchmarkSummaryCLIRateRows(summary benchmark.Summary) []benchmarkSummaryMetricRow {
+	rate := func(value float64) string {
+		return fmt.Sprintf("%.2f%%", value*100)
+	}
+	return []benchmarkSummaryMetricRow{
+		{Metric: "compliance", Display: rate(summary.ComplianceRate)},
 	}
 }
 
@@ -5053,6 +5010,7 @@ func benchmarkUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
 	fmt.Fprintln(os.Stderr, "    --template <name>                Template selection: auto|windows|linux|euleros|kylin (default: auto)")
+	fmt.Fprintln(os.Stderr, "    --baseline-level <level>         Baseline level selection: 1|2|3|4 (default: 1)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "NOTE:")
 	fmt.Fprintln(os.Stderr, "    benchmark is collection-only and does not support -r/--riskanalyze or risk options.")

@@ -31,9 +31,37 @@ func NormalizeTemplate(raw string) (Template, error) {
 	return t, nil
 }
 
+type BaselineLevel string
+
+const (
+	BaselineLevel1 BaselineLevel = "1"
+	BaselineLevel2 BaselineLevel = "2"
+	BaselineLevel3 BaselineLevel = "3"
+	BaselineLevel4 BaselineLevel = "4"
+)
+
+var validBaselineLevels = map[BaselineLevel]struct{}{
+	BaselineLevel1: {},
+	BaselineLevel2: {},
+	BaselineLevel3: {},
+	BaselineLevel4: {},
+}
+
+func NormalizeBaselineLevel(raw string) (BaselineLevel, error) {
+	level := BaselineLevel(normalizeLowerTrim(raw))
+	if level == "" {
+		level = BaselineLevel1
+	}
+	if _, ok := validBaselineLevels[level]; !ok {
+		return "", fmt.Errorf("invalid argument: --baseline-level only supports 1|2|3|4")
+	}
+	return level, nil
+}
+
 type ScanOptions struct {
-	Template Template
-	Progress func(done, total int, stage string)
+	Template      Template
+	BaselineLevel BaselineLevel
+	Progress      func(done, total int, stage string)
 }
 
 type Summary struct {
@@ -41,10 +69,14 @@ type Summary struct {
 	Pass           int     `json:"pass"`
 	Fail           int     `json:"fail"`
 	Unknown        int     `json:"unknown"`
+	Informational  int     `json:"informational"`
+	Pending        int     `json:"pending"`
 	Evaluated      int     `json:"evaluated"`
 	ComplianceRate float64 `json:"compliance_rate"`
 	CoverageRate   float64 `json:"coverage_rate"`
 	UnknownRate    float64 `json:"unknown_rate"`
+	InformationalRate float64 `json:"informational_rate"`
+	PendingRate       float64 `json:"pending_rate"`
 }
 
 type Metadata struct {
@@ -52,6 +84,7 @@ type Metadata struct {
 	TemplateTime    string `json:"template_time,omitempty"`
 	Product         string `json:"product,omitempty"`
 	TemplateName    string `json:"template_name,omitempty"`
+	BaselineLevel   string `json:"baseline_level,omitempty"`
 	TemplateVersion string `json:"template_version,omitempty"`
 	Industry        string `json:"industry,omitempty"`
 	SystemVersion   string `json:"system_version,omitempty"`

@@ -86,7 +86,7 @@ func TestRunNativeTemplateChecksLinuxFamilySmoke(t *testing.T) {
 				t.Fatal("expected generated xml header")
 			}
 
-			rows, err := parseXMLFile(xmlPath, template)
+			rows, err := parseXMLFile(xmlPath, template, BaselineLevel1)
 			if err != nil {
 				t.Fatalf("parseXMLFile returned error: %v", err)
 			}
@@ -114,7 +114,7 @@ func TestScanUnixNativeBenchmarkLinuxFamilySmoke(t *testing.T) {
 		t.Run(string(template), func(t *testing.T) {
 			t.Parallel()
 
-			result, handled, err := scanUnixNativeBenchmark(context.Background(), template, t.TempDir(), nil)
+			result, handled, err := scanUnixNativeBenchmark(context.Background(), template, BaselineLevel1, t.TempDir(), nil)
 			if err != nil {
 				t.Fatalf("scanUnixNativeBenchmark returned error: %v", err)
 			}
@@ -156,7 +156,7 @@ func TestLinuxFamilyRuleIDsExposeTemplateSpecificPrefixes(t *testing.T) {
 		t.Run(string(tc.template), func(t *testing.T) {
 			t.Parallel()
 
-			rules, err := loadBenchmarkRuleSet(tc.template)
+			rules, err := loadBenchmarkRuleSet(tc.template, BaselineLevel1)
 			if err != nil {
 				t.Fatalf("loadBenchmarkRuleSet returned error: %v", err)
 			}
@@ -194,7 +194,7 @@ func TestLinuxFamilyNativeBenchmarkCarriesTemplateSpecificRows(t *testing.T) {
 		t.Run(string(tc.template), func(t *testing.T) {
 			t.Parallel()
 
-			result, handled, err := scanUnixNativeBenchmark(context.Background(), tc.template, t.TempDir(), nil)
+			result, handled, err := scanUnixNativeBenchmark(context.Background(), tc.template, BaselineLevel1, t.TempDir(), nil)
 			if err != nil {
 				t.Fatalf("scanUnixNativeBenchmark returned error: %v", err)
 			}
@@ -236,7 +236,7 @@ func TestLinuxNativeBenchmarkUnknownRowsAreOnlyInformational(t *testing.T) {
 		t.Skipf("requires Linux runtime, got %s", runtime.GOOS)
 	}
 
-	result, handled, err := scanUnixNativeBenchmark(context.Background(), TemplateLinux, t.TempDir(), nil)
+	result, handled, err := scanUnixNativeBenchmark(context.Background(), TemplateLinux, BaselineLevel1, t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("scanUnixNativeBenchmark returned error: %v", err)
 	}

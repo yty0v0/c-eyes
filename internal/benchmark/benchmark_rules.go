@@ -53,8 +53,8 @@ type benchmarkCheckResult struct {
 	Recommendation string
 }
 
-func loadBenchmarkRuleSet(template Template) (benchmarkRuleSet, error) {
-	assetPath := benchmarkRuleAssetPath(template)
+func loadBenchmarkRuleSet(template Template, level BaselineLevel) (benchmarkRuleSet, error) {
+	assetPath := benchmarkRuleAssetPath(template, level)
 	payload, err := assets.Files.ReadFile(assetPath)
 	if err != nil {
 		return benchmarkRuleSet{}, fmt.Errorf("read benchmark rules %s failed: %w", assetPath, err)
@@ -100,6 +100,9 @@ func applyBenchmarkRule(rule benchmarkRule, result *benchmarkCheckResult) {
 	result.Severity = strings.TrimSpace(rule.Severity)
 	result.Recommendation = strings.TrimSpace(rule.Recommendation)
 	result.Status = evaluateBenchmarkRule(rule, result.Eval)
+	if !result.Status.Evaluated && normalizeLowerTrim(result.Status.StatusReason) == "informational_check" {
+		result.Severity = ""
+	}
 }
 
 func evaluateBenchmarkRule(rule benchmarkRule, eval map[string]any) statusAssessment {
@@ -136,6 +139,24 @@ func evaluateBenchmarkRule(rule benchmarkRule, eval map[string]any) statusAssess
 			return statusAssessment{Status: "unknown", Evaluated: false, StatusReason: "undetermined", ExecutionStatus: "ok"}
 		}
 		if !strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(rule.Evaluator.Value)) {
+			return statusAssessment{Status: "pass", Evaluated: true, StatusReason: "policy_match", ExecutionStatus: "ok"}
+		}
+		return statusAssessment{Status: "fail", Evaluated: true, StatusReason: "policy_violation", ExecutionStatus: "ok"}
+	case "string_contains":
+		actual, ok := lookupEvalString(eval, rule.Evaluator.Field)
+		if !ok {
+			return statusAssessment{Status: "unknown", Evaluated: false, StatusReason: "undetermined", ExecutionStatus: "ok"}
+		}
+		if strings.Contains(strings.ToLower(strings.TrimSpace(actual)), strings.ToLower(strings.TrimSpace(rule.Evaluator.Value))) {
+			return statusAssessment{Status: "pass", Evaluated: true, StatusReason: "policy_match", ExecutionStatus: "ok"}
+		}
+		return statusAssessment{Status: "fail", Evaluated: true, StatusReason: "policy_violation", ExecutionStatus: "ok"}
+	case "string_not_contains":
+		actual, ok := lookupEvalString(eval, rule.Evaluator.Field)
+		if !ok {
+			return statusAssessment{Status: "unknown", Evaluated: false, StatusReason: "undetermined", ExecutionStatus: "ok"}
+		}
+		if !strings.Contains(strings.ToLower(strings.TrimSpace(actual)), strings.ToLower(strings.TrimSpace(rule.Evaluator.Value))) {
 			return statusAssessment{Status: "pass", Evaluated: true, StatusReason: "policy_match", ExecutionStatus: "ok"}
 		}
 		return statusAssessment{Status: "fail", Evaluated: true, StatusReason: "policy_violation", ExecutionStatus: "ok"}
@@ -189,6 +210,15 @@ func evaluateBenchmarkRule(rule benchmarkRule, eval map[string]any) statusAssess
 			if err == nil && actual == expected {
 				return statusAssessment{Status: "pass", Evaluated: true, StatusReason: "policy_match", ExecutionStatus: "ok"}
 			}
+		}
+		return statusAssessment{Status: "fail", Evaluated: true, StatusReason: "policy_violation", ExecutionStatus: "ok"}
+	case "int_gt":
+		actual, ok := lookupEvalInt(eval, rule.Evaluator.Field)
+		if !ok || rule.Evaluator.Min == nil {
+			return statusAssessment{Status: "unknown", Evaluated: false, StatusReason: "undetermined", ExecutionStatus: "ok"}
+		}
+		if actual > *rule.Evaluator.Min {
+			return statusAssessment{Status: "pass", Evaluated: true, StatusReason: "policy_match", ExecutionStatus: "ok"}
 		}
 		return statusAssessment{Status: "fail", Evaluated: true, StatusReason: "policy_violation", ExecutionStatus: "ok"}
 	default:
@@ -299,9 +329,12 @@ func lookupEvalValue(values map[string]any, field string) (any, bool) {
 	return current, true
 }
 
-func benchmarkRuleAssetPath(template Template) string {
+func benchmarkRuleAssetPath(template Template, level BaselineLevel) string {
 	folder := string(template)
-	return path.Join(folder, folder+"-rules.yaml")
+	if level == "" {
+		level = BaselineLevel1
+	}
+	return path.Join(folder, folder+"-s1a"+string(level)+"g"+string(level)+"-rules.yaml")
 }
 
 func firstNonEmpty(values ...string) string {

@@ -1,0 +1,350 @@
+version: 1
+template: kylin
+checks:
+- source_id: '1'
+  id: KYL-SVC-001
+  name: 系统服务信息
+  category: service
+  description: 采集 chkconfig 服务启用状态。
+  expected: 系统服务信息可读取。
+  severity: medium
+  recommendation: 核查不必要服务和高风险远程服务。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '2'
+  id: KYL-META-001
+  name: 临时工件清理
+  category: meta
+  description: 记录 benchmark 临时工件清理状态。
+  expected: 临时工件已安全清理。
+  severity: low
+  recommendation: 确认扫描过程未残留敏感中间文件。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '3'
+  id: KYL-FILE-001
+  name: 关键账户文件属性
+  category: filesystem
+  description: 采集 /etc/shadow、/etc/passwd 等文件属性。
+  expected: 至少 2 个关键认证文件处于受保护状态。
+  severity: medium
+  recommendation: 核查关键认证文件权限与不可变属性是否安全。
+  evaluator:
+    kind: int_gte
+    field: protected_file_count
+    min: 2
+- source_id: '4'
+  id: KYL-SHADOW-001
+  name: 口令影子文件信息
+  category: account
+  description: 采集 /etc/shadow 内容摘要。
+  expected: 弱口令或空口令标记数量为 0。
+  severity: info
+  recommendation: 核查弱口令、空口令及异常口令策略。
+  evaluator:
+    kind: int_equals
+    field: empty_password_count
+    value: '0'
+- source_id: '5'
+  id: KYL-LOGIN-002
+  name: 登录失败日志
+  category: audit
+  description: 采集最近失败登录记录。
+  expected: 失败登录记录可读取。
+  severity: medium
+  recommendation: 核查暴力破解和异常来源。
+  evaluator:
+    kind: int_gte
+    field: entry_count
+    min: 1
+- source_id: '6'
+  id: KYL-GRP-001
+  name: 本地用户组信息
+  category: account
+  description: 采集 /etc/group 内容。
+  expected: 至少存在 1 个本地用户组。
+  severity: low
+  recommendation: 核查高权限组成员与例外授权。
+  evaluator:
+    kind: int_gte
+    field: group_count
+    min: 1
+- source_id: '7'
+  id: KYL-KERNEL-001
+  name: 系统内核信息
+  category: system
+  description: 采集当前 Kylin 内核信息。
+  expected: 系统内核版本符合组织支持基线。
+  severity: info
+  recommendation: 核查内核版本与补丁支持状态。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '8'
+  id: KYL-REL-001
+  name: 发行版版本信息
+  category: system
+  description: 采集 Kylin 版本信息。
+  expected: 发行版版本信息可识别。
+  severity: medium
+  recommendation: 核查 Kylin 版本与补丁支持周期。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '9'
+  id: KYL-RPM-001
+  name: 已安装 RPM 软件包
+  category: software
+  description: 采集 RPM 软件包列表摘要。
+  expected: 已安装 RPM 软件包信息可读取。
+  severity: medium
+  recommendation: 核查异常软件包和不必要组件。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '10'
+  id: KYL-FS-001
+  name: 磁盘使用信息
+  category: filesystem
+  description: 采集磁盘使用情况。
+  expected: 最高磁盘使用率不高于 90%。
+  severity: medium
+  recommendation: 核查关键挂载点容量和异常分区。
+  evaluator:
+    kind: int_lte
+    field: highest_used_percent
+    max: 90
+- source_id: '11'
+  id: KYL-NET-001
+  name: 网络接口信息
+  category: network
+  description: 采集 ifconfig 输出。
+  expected: 活动网络接口信息可读取。
+  severity: medium
+  recommendation: 核查异常网卡与多余地址。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '12'
+  id: KYL-LOGIN-001
+  name: 登录日志信息
+  category: audit
+  description: 采集最近登录记录。
+  expected: 最近登录记录可读取。
+  severity: medium
+  recommendation: 核查异常登录时段与来源。
+  evaluator:
+    kind: int_gte
+    field: entry_count
+    min: 1
+- source_id: '13'
+  id: KYL-LOG-001
+  name: 系统日志摘要
+  category: audit
+  description: 采集系统日志摘要。
+  expected: 系统日志摘要可读取。
+  severity: medium
+  recommendation: 核查异常报错与安全事件线索。
+  evaluator:
+    kind: int_gte
+    field: log_line_count
+    min: 1
+- source_id: '14'
+  id: KYL-PROC-001
+  name: 进程信息
+  category: process
+  description: 采集当前进程列表。
+  expected: 进程信息可读取。
+  severity: medium
+  recommendation: 核查异常进程和来源不明进程。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '15'
+  id: KYL-NET-002
+  name: 网络连接信息
+  category: network
+  description: 采集网络连接与监听端口信息。
+  expected: 网络连接信息可读取。
+  severity: medium
+  recommendation: 核查异常监听端口与外联连接。
+  evaluator:
+    kind: int_gte
+    field: listen_count
+    min: 1
+- id: KYL-TRUST-001
+  name: "Trust 文件暴露检查"
+  category: account
+  description: "采集 hosts.equiv、.rhosts 和 .netrc 暴露情况。"
+  expected: "未检测到 trust 文件。"
+  severity: high
+  recommendation: "删除 hosts.equiv、.rhosts 和 .netrc 等 trust 文件并改用更安全的认证方式。"
+  evaluator:
+    kind: int_equals
+    field: entry_count
+    value: '0'
+- id: KYL-LOG-ADV-001
+  name: "rsyslog messages 规则已配置"
+  category: audit
+  description: "采集 rsyslog messages 日志规则。"
+  expected: "至少检测到 1 条 rsyslog messages 规则。"
+  severity: medium
+  recommendation: "在 rsyslog 中配置 messages 日志落盘规则。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: KYL-FS-ADV-001
+  name: "df -k 文件系统信息"
+  category: filesystem
+  description: "采集 df -k 文件系统输出。"
+  expected: "文件系统信息可正常读取。"
+  severity: low
+  recommendation: "检查文件系统挂载状态与容量使用情况。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: KYL-NET-ADV-001
+  name: "禁用 IPv4 转发"
+  category: network_hardening
+  description: ?? /proc/sys/net/ipv4/ip_forward?
+  expected: ip_forward = 0?
+  severity: high
+  recommendation: "将内核参数 net.ipv4.ip_forward 设置为 0，禁用 IPv4 转发。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: KYL-NET-ADV-002
+  name: send_redirects ??
+  category: network_hardening
+  description: ?? net.ipv4.conf.all.send_redirects?
+  expected: send_redirects = 0?
+  severity: medium
+  recommendation: "将内核参数 net.ipv4.conf.all.send_redirects 设置为 0，禁止发送 ICMP 重定向。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: KYL-NET-ADV-003
+  name: accept_source_route ??
+  category: network_hardening
+  description: ?? net.ipv4.conf.all.accept_source_route?
+  expected: accept_source_route = 0?
+  severity: high
+  recommendation: "将内核参数 net.ipv4.conf.all.accept_source_route 设置为 0，禁用源路由。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: KYL-NET-ADV-004
+  name: icmp_echo_ignore_broadcasts ??
+  category: network_hardening
+  description: ?? net.ipv4.icmp_echo_ignore_broadcasts?
+  expected: icmp_echo_ignore_broadcasts = 1?
+  severity: medium
+  recommendation: "将内核参数 net.ipv4.icmp_echo_ignore_broadcasts 设置为 1，忽略广播 ICMP Echo 请求。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '1'
+- id: KYL-NET-ADV-005
+  name: ip_forward ??
+  category: network_hardening
+  description: ?? net.ipv4.ip_forward?
+  expected: ip_forward = 0?
+  severity: high
+  recommendation: "将内核参数 net.ipv4.ip_forward 设置为 0，禁用 IPv4 转发。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: KYL-NET-ADV-006
+  name: accept_redirects ??
+  category: network_hardening
+  description: ?? net.ipv4.conf.all.accept_redirects?
+  expected: accept_redirects = 0?
+  severity: medium
+  recommendation: "将内核参数 net.ipv4.conf.all.accept_redirects 设置为 0，禁止接收 ICMP 重定向。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: KYL-TIME-001
+  name: "时间服务器配置已采集"
+  category: time_policy
+  description: "采集 NTP 时间服务器配置。"
+  expected: "至少检测到 1 条时间服务器配置。"
+  severity: medium
+  recommendation: "配置可信时间服务器并确保时间同步策略生效。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: KYL-TIME-002
+  name: "NTP 守护进程已运行"
+  category: time_policy
+  description: "检查 ntpd 运行状态。"
+  expected: "至少检测到 1 个时间同步守护进程正在运行。"
+  severity: medium
+  recommendation: "启动并保持 ntpd 时间同步守护进程运行。"
+  evaluator:
+    kind: bool_true
+    field: daemon_running
+- id: KYL-SSH-ADV-001
+  name: "SSH Banner 合规"
+  category: remote_access
+  description: "检查 SSH Banner 与 motd 配置状态。"
+  expected: "SSH Banner 配置符合要求。"
+  severity: medium
+  recommendation: "为 SSH 服务配置合规的 Banner 提示信息。"
+  evaluator:
+    kind: bool_true
+    field: banner_ok
+- id: KYL-LOG-ADV-002
+  name: "rsyslog authpriv 规则已配置"
+  category: audit
+  description: "采集 rsyslog authpriv 日志规则。"
+  expected: "至少检测到 1 条 rsyslog authpriv 规则。"
+  severity: medium
+  recommendation: "为 authpriv 日志配置单独的安全审计落盘规则。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: KYL-LOG-ADV-003
+  name: "rsyslog 远程转发规则已配置"
+  category: audit
+  description: "采集 rsyslog 远程转发配置。"
+  expected: "至少检测到 1 条 rsyslog 远程转发规则。"
+  severity: medium
+  recommendation: "按需配置 rsyslog 日志远程转发策略。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: KYL-HIST-001
+  name: HISTSIZE ??
+  category: shell_policy
+  description: "采集 HISTSIZE shell 历史配置值。"
+  expected: HISTSIZE ?? 0?
+  severity: low
+  recommendation: "合理配置 HISTSIZE。"
+  evaluator:
+    kind: int_gt
+    field: int_value
+    min: 0
+- id: KYL-HIST-002
+  name: HISTFILESIZE ??
+  category: shell_policy
+  description: "采集 HISTFILESIZE shell 历史配置值。"
+  expected: HISTFILESIZE ?? 0?
+  severity: low
+  recommendation: "合理配置 HISTFILESIZE。"
+  evaluator:
+    kind: int_gt
+    field: int_value
+    min: 0

@@ -18,8 +18,8 @@ The system SHALL provide `c-eyes benchmark` as a unified baseline-check command 
 - **WHEN** the user executes `c-eyes benchmark -r`
 - **THEN** the command returns an English argument error indicating `benchmark` does not support `-r/--riskanalyze`
 
-### Requirement: Benchmark command SHALL support template routing with auto default
-The system SHALL support `--template auto|windows|linux|euleros|kylin` and MUST use `auto` when the option is omitted.
+### Requirement: Benchmark command SHALL support template routing and baseline-level selection
+The system SHALL support `--template auto|windows|linux|euleros|kylin` and MUST use `auto` when the option is omitted. The system SHALL support `--baseline-level 1|2|3|4` and MUST use `1` when the option is omitted.
 
 #### Scenario: Auto template selects Windows template
 - **WHEN** the user executes `c-eyes benchmark` on Windows runtime
@@ -33,6 +33,14 @@ The system SHALL support `--template auto|windows|linux|euleros|kylin` and MUST 
 #### Scenario: Explicit template must match current runtime family
 - **WHEN** the user executes `c-eyes benchmark --template linux` on Windows runtime
 - **THEN** benchmark rejects the command with an English error indicating the template does not match the current system
+
+#### Scenario: Baseline level defaults to level 1
+- **WHEN** the user executes `c-eyes benchmark` without `--baseline-level`
+- **THEN** benchmark uses baseline level `1`
+
+#### Scenario: Explicit baseline level selects level-specific rule set
+- **WHEN** the user executes `c-eyes benchmark --template linux --baseline-level 3`
+- **THEN** benchmark uses the Linux template with the level-3 benchmark rule set and metadata
 
 ### Requirement: Benchmark command SHALL enforce elevated privilege
 The benchmark module MUST fail fast when elevated privilege is not available.

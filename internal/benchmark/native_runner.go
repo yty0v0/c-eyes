@@ -352,6 +352,111 @@ func nativeProfileForTemplate(template Template) (nativeTemplateProfile, error) 
 	}
 }
 
+func nativeProfileForTemplateLevel(template Template, level BaselineLevel) (nativeTemplateProfile, error) {
+	profile, err := nativeProfileForTemplate(template)
+	if err != nil {
+		return nativeTemplateProfile{}, err
+	}
+	if level == "" {
+		level = BaselineLevel1
+	}
+
+	switch template {
+	case TemplateWindows:
+		profile.uuid = "benchmark-windows-native-v" + string(level)
+		switch level {
+		case BaselineLevel2:
+			profile.templateTime = "2026-04-29 14:02:39"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"8", "6", "4", "9", "2", "12", "1", "5", "0", "7", "3", "10"}, nil)
+		case BaselineLevel3:
+			profile.templateTime = "2025-06-25 13:20:00"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"3", "1", "8", "4", "9", "5", "12", "6", "0", "7", "10", "2"}, nil)
+		case BaselineLevel4:
+			profile.templateTime = "2026-04-29 14:02:45"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"6", "8", "4", "9", "1", "12", "5", "2", "0", "7", "3", "10"}, nil)
+		}
+	case TemplateLinux:
+		profile.uuid = "benchmark-linux-native-v" + string(level)
+		switch level {
+		case BaselineLevel2:
+			profile.templateTime = "2026-04-29 13:59:50"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"21", "11", "8", "3", "20", "6", "2", "7", "0", "1", "17", "5", "4", "19", "16", "22", "15", "13", "10", "12", "9", "14"}, map[string]string{
+				"15": `ps -ef | head -300 | grep -v "\.sh" | grep -v "\.pl"`,
+			})
+		case BaselineLevel3:
+			profile.templateTime = "2026-04-29 13:59:54"
+			profile.checks = append(reorderNativeChecks(profile.checks, []string{"21", "1", "11", "8", "3", "7", "4", "10", "0", "5", "6", "14", "19", "2", "22", "15", "17", "13", "20", "12", "9", "16"}, map[string]string{
+				"15": `ps -ef | head -300 | grep -v "\.sh" | grep -v "\.pl"`,
+			}), linuxLevel3AdvancedChecks()...)
+		case BaselineLevel4:
+			profile.templateTime = "2026-04-29 13:59:58"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"21", "1", "11", "8", "6", "7", "4", "10", "0", "5", "14", "3", "17", "19", "2", "22", "15", "13", "20", "12", "9", "16"}, map[string]string{
+				"15": `ps -ef | head -300 | grep -v "\.sh" | grep -v "\.pl"`,
+			})
+		}
+	case TemplateEulerOS:
+		profile.uuid = "benchmark-euleros-native-v" + string(level)
+		switch level {
+		case BaselineLevel2:
+			profile.templateTime = "2026-04-29 13:53:57"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"14", "3", "0", "11", "8", "9", "7", "5", "18", "6", "1", "10", "2", "4", "21"}, nil)
+		case BaselineLevel3:
+			profile.templateTime = "2026-04-29 13:54:04"
+			profile.checks = append(reorderNativeChecks(profile.checks, []string{"14", "9", "0", "11", "8", "6", "7", "5", "18", "2", "10", "21", "4", "1", "3"}, nil), eulerLevel3AdvancedChecks()...)
+		case BaselineLevel4:
+			profile.templateTime = "2026-04-29 13:54:08"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"14", "3", "0", "11", "8", "9", "7", "5", "18", "6", "1", "10", "2", "4", "21"}, nil)
+		}
+	case TemplateKylin:
+		profile.uuid = "benchmark-kylin-native-v" + string(level)
+		switch level {
+		case BaselineLevel2:
+			profile.templateTime = "2026-04-29 13:57:41"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"7", "13", "14", "15", "8", "2", "11", "1", "9", "3", "10", "6", "4", "5", "12"}, nil)
+		case BaselineLevel3:
+			profile.templateTime = "2026-04-29 13:57:47"
+			profile.checks = append(reorderNativeChecks(profile.checks, []string{"13", "6", "14", "15", "2", "7", "11", "1", "3", "8", "9", "10", "4", "5", "12"}, nil), kylinLevel3AdvancedChecks()...)
+		case BaselineLevel4:
+			profile.templateTime = "2026-04-29 13:57:52"
+			profile.checks = reorderNativeChecks(profile.checks, []string{"6", "13", "14", "15", "7", "2", "11", "1", "8", "3", "9", "10", "4", "5", "12"}, nil)
+		}
+	}
+	return profile, nil
+}
+
+func reorderNativeChecks(checks []nativeCheck, order []string, overrides map[string]string) []nativeCheck {
+	if len(order) == 0 {
+		return checks
+	}
+	index := make(map[string]nativeCheck, len(checks))
+	for _, check := range checks {
+		if override := strings.TrimSpace(overrides[check.id]); override != "" {
+			check.command = override
+		}
+		index[check.id] = check
+	}
+	reordered := make([]nativeCheck, 0, len(checks))
+	seen := make(map[string]struct{}, len(order))
+	for _, id := range order {
+		check, ok := index[id]
+		if !ok {
+			continue
+		}
+		reordered = append(reordered, check)
+		seen[id] = struct{}{}
+	}
+	for _, check := range checks {
+		if _, ok := seen[check.id]; ok {
+			continue
+		}
+		if override := strings.TrimSpace(overrides[check.id]); override != "" {
+			check.command = override
+		}
+		reordered = append(reordered, check)
+	}
+	return reordered
+}
+
 func nativeWindowsProfile() nativeTemplateProfile {
 	return nativeTemplateProfile{
 		uuid:         "benchmark-windows-native-v1",
@@ -403,6 +508,63 @@ if [ -f /etc/passwd ];then lsattr /etc/passwd 2>/dev/null;fi`},
 			{id: "22", command: `version=$(lsb_release -a 2>/dev/null | grep "Description" | awk -F: '{print $2}');if [ -n "$version" ];then echo "$version";else if [ -z "$version" ]; then echo "";else cat /etc/SuSE-release | grep -v "VERSION" | grep -v "PATCHLEVEL";fi;fi`},
 			{id: "10", command: `df -m 2>/dev/null`},
 		},
+	}
+}
+
+func linuxLevel3AdvancedChecks() []nativeCheck {
+	return []nativeCheck{
+		{id: "LNX-NET-ADV-001", command: `sysctl -n net.ipv4.ip_forward 2>/dev/null || cat /proc/sys/net/ipv4/ip_forward 2>/dev/null`},
+		{id: "LNX-NET-ADV-002", command: `sysctl -n net.ipv4.icmp_echo_ignore_broadcasts 2>/dev/null`},
+		{id: "LNX-NET-ADV-003", command: `sysctl -n net.ipv4.conf.all.accept_source_route 2>/dev/null`},
+		{id: "LNX-NET-ADV-004", command: `sysctl -n net.ipv4.conf.all.send_redirects 2>/dev/null`},
+		{id: "LNX-NET-ADV-005", command: `sysctl -n net.ipv4.conf.all.accept_redirects 2>/dev/null`},
+		{id: "LNX-SVC-ADV-001", command: `for svc in klogin tftp sendmail echo lpd chargen printer ntalk ypbind bootps discard kshell daytime ident time; do if command -v chkconfig >/dev/null 2>&1; then chkconfig --list 2>/dev/null | grep "^$svc" && echo "$svc"; else systemctl list-units --type=service 2>/dev/null | grep "^$svc" && echo "$svc"; fi; done`},
+		{id: "LNX-SVC-ADV-002", command: `ps -ef | grep nfs | grep -v nfsiod | grep -cv "grep nfs"`},
+		{id: "LNX-SSH-ADV-001", command: `awk '!/^#/{if ($1 != "") print $1}' /etc/ssh/sshd_config 2>/dev/null | grep -i '^AllowUsers'`},
+		{id: "LNX-SSH-ADV-002", command: `ssh_status=$(netstat -antp 2>/dev/null | grep -i listen | grep ":22\\>" | wc -l); if [ "$ssh_status" != "0" ] && [ -f /etc/motd ]; then echo "check result:true"; elif [ "$ssh_status" != "0" ]; then echo "check result:false"; else echo "check result:true"; fi`},
+		{id: "LNX-TRUST-001", command: `find / -maxdepth 3 \( -name .rhosts -o -name hosts.equiv \) 2>/dev/null`},
+		{id: "LNX-TIME-001", command: `if [ -f /etc/ntp.conf ]; then grep -v "^[[:space:]]*#" /etc/ntp.conf | grep 'server' | grep -v "127.127.1.0" | grep -v "127.0.0.1"; elif [ -f /etc/chrony.conf ]; then grep -v "^[[:space:]]*#" /etc/chrony.conf | grep 'allow' | grep -v "127.127.1.0" | grep -v "127.0.0.1"; fi`},
+		{id: "LNX-TIME-002", command: `if pgrep -x "ntpd" >/dev/null || pgrep -x "ntp" >/dev/null; then echo "ntp:start"; fi; if pgrep -x "chronyd" >/dev/null; then echo "chronyd:start"; fi`},
+	}
+}
+
+func eulerLevel3AdvancedChecks() []nativeCheck {
+	return []nativeCheck{
+		{id: "EUL-NET-ADV-001", command: `sysctl -n net.ipv4.ip_forward 2>/dev/null`},
+		{id: "EUL-NET-ADV-002", command: `sysctl -n net.ipv4.conf.all.accept_source_route 2>/dev/null`},
+		{id: "EUL-NET-ADV-003", command: `sysctl -n net.ipv4.conf.all.send_redirects 2>/dev/null`},
+		{id: "EUL-NET-ADV-004", command: `sysctl -n net.ipv4.icmp_echo_ignore_broadcasts 2>/dev/null`},
+		{id: "EUL-NET-ADV-005", command: `sysctl -n net.ipv4.conf.all.accept_redirects 2>/dev/null`},
+		{id: "EUL-SSH-ADV-001", command: `grep -v '^[[:space:]]*#' /etc/ssh/sshd_config 2>/dev/null | grep Banner`},
+		{id: "EUL-LOG-ADV-001", command: `if [ -s /etc/rsyslog.conf ];then cat /etc/rsyslog.conf | grep -v "^[[:space:]]*#" | grep "\*\.info;mail\.none;authpriv\.none;cron\.none[[:space:]]*";fi`},
+		{id: "EUL-LOG-ADV-002", command: `if [ -s /etc/rsyslog.conf ];then cat /etc/rsyslog.conf | grep -v "^[[:space:]]*#" | grep "authpriv\.\*[[:space:]]*.*" | grep -Eo '^\s*(.+;|)authpriv\.\*';fi`},
+		{id: "EUL-LOG-ADV-003", command: `if [ -f /etc/rsyslog.conf ];then cat /etc/rsyslog.conf | grep -v "^[[:space:]]*#" | grep "cron\.\*[[:space:]]*" | grep "/var/log/cron";fi`},
+		{id: "EUL-TIME-001", command: `if [ -f /etc/ntp.conf ];then cat /etc/ntp.conf | grep -v "^[[:space:]]*#" | grep 'server' | grep -v "127.127.1.0" | grep -v "127.0.0.1";fi`},
+		{id: "EUL-TIME-002", command: `systemctl status chronyd 2>/dev/null`},
+		{id: "EUL-TIME-003", command: `systemctl status ntpd 2>/dev/null`},
+		{id: "EUL-HIST-001", command: `echo $HISTSIZE`},
+		{id: "EUL-HIST-002", command: `echo $HISTFILESIZE`},
+	}
+}
+
+func kylinLevel3AdvancedChecks() []nativeCheck {
+	return []nativeCheck{
+		{id: "KYL-TRUST-001", command: `find / -maxdepth 3 \( -name hosts.equiv -o -name .rhosts -o -name .netrc \) 2>/dev/null`},
+		{id: "KYL-LOG-ADV-001", command: `if [ -f /etc/rsyslog.conf ];then cat /etc/rsyslog.conf | grep -v "^[[:space:]]*#" | grep "\*\.info" | grep "/var/log/messages";fi`},
+		{id: "KYL-FS-ADV-001", command: `df -k`},
+		{id: "KYL-NET-ADV-001", command: `cat /proc/sys/net/ipv4/ip_forward 2>/dev/null`},
+		{id: "KYL-NET-ADV-002", command: `sysctl -n net.ipv4.conf.all.send_redirects 2>/dev/null`},
+		{id: "KYL-NET-ADV-003", command: `sysctl -n net.ipv4.conf.all.accept_source_route 2>/dev/null`},
+		{id: "KYL-NET-ADV-004", command: `sysctl -n net.ipv4.icmp_echo_ignore_broadcasts 2>/dev/null`},
+		{id: "KYL-NET-ADV-005", command: `sysctl -n net.ipv4.ip_forward 2>/dev/null`},
+		{id: "KYL-NET-ADV-006", command: `sysctl -n net.ipv4.conf.all.accept_redirects 2>/dev/null`},
+		{id: "KYL-TIME-001", command: `if [ -f /etc/ntp.conf ];then cat /etc/ntp.conf | grep -v "^[[:space:]]*#" | grep 'server' | grep -v "127.127.1.0" | grep -v "127.0.0.1";fi`},
+		{id: "KYL-TIME-002", command: `if pgrep -x "ntpd" >/dev/null || pgrep -x "ntp" >/dev/null; then echo "ntp:start"; else echo "ntp:stop"; fi`},
+		{id: "KYL-SSH-ADV-001", command: `ssh_status=$(netstat -antp 2>/dev/null | grep -i listen | grep ":22\\>" | wc -l); if [[ "$ssh_status" != 0 && -f /etc/motd ]];then echo "check result:true"; elif [ "$ssh_status" != 0 ];then echo "check result:false"; else echo "check result:true"; fi`},
+		{id: "KYL-LOG-ADV-002", command: `if [ -f /etc/rsyslog.conf ];then cat /etc/rsyslog.conf | grep -v "^[[:space:]]*#" | grep "authpriv\.\* " | grep "/var/log/secure";fi`},
+		{id: "KYL-LOG-ADV-003", command: `if [ -f /etc/rsyslog.conf ];then cat /etc/rsyslog.conf | grep -v "^[[:space:]]*#" | grep -E '[[:space:]]*.+@.+';fi`},
+		{id: "KYL-HIST-001", command: `echo $HISTSIZE`},
+		{id: "KYL-HIST-002", command: `echo $HISTFILESIZE`},
 	}
 }
 

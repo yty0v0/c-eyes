@@ -62,6 +62,10 @@ func Scan(ctx context.Context, options ScanOptions) (ScanResult, error) {
 	if selected == "" {
 		selected = TemplateAuto
 	}
+	level := options.BaselineLevel
+	if level == "" {
+		level = BaselineLevel1
+	}
 
 	selectedTemplate, err := resolveTemplate(selected)
 	if err != nil {
@@ -84,14 +88,14 @@ func Scan(ctx context.Context, options ScanOptions) (ScanResult, error) {
 	defer func() { _ = os.RemoveAll(workingRoot) }()
 
 	notifyProgress(progress, benchmarkProgressAfterPrepare, benchmarkProgressTotalSteps, "execute checks")
-	if result, handled, err := scanWindowsNativeBenchmark(ctx, selectedTemplate, workingRoot, progress); handled {
+	if result, handled, err := scanWindowsNativeBenchmark(ctx, selectedTemplate, level, workingRoot, progress); handled {
 		if err != nil {
 			return ScanResult{}, err
 		}
 		notifyProgress(progress, benchmarkProgressTotalSteps, benchmarkProgressTotalSteps, "scan completed")
 		return result, nil
 	}
-	if result, handled, err := scanUnixNativeBenchmark(ctx, selectedTemplate, workingRoot, progress); handled {
+	if result, handled, err := scanUnixNativeBenchmark(ctx, selectedTemplate, level, workingRoot, progress); handled {
 		if err != nil {
 			return ScanResult{}, err
 		}
@@ -106,7 +110,7 @@ func Scan(ctx context.Context, options ScanOptions) (ScanResult, error) {
 
 	notifyProgress(progress, benchmarkProgressParseStart, benchmarkProgressTotalSteps, "parse results")
 	rows := make([]Row, 0, 256)
-	parsedRows, err := parseXMLFile(generatedXML, selectedTemplate)
+	parsedRows, err := parseXMLFile(generatedXML, selectedTemplate, level)
 	if err != nil {
 		return ScanResult{}, err
 	}

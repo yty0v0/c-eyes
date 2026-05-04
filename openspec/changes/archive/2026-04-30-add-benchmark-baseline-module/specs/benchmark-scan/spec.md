@@ -24,9 +24,9 @@ The system SHALL support `--template auto|windows|linux|euleros|kylin` and MUST 
 - **THEN** benchmark selects `euleros` or `kylin` when distro signals match
 - **AND** otherwise selects `linux`
 
-#### Scenario: Explicit template overrides auto detection
-- **WHEN** the user executes `c-eyes benchmark --template linux`
-- **THEN** benchmark uses `linux` regardless of auto-detection result
+#### Scenario: Explicit template must match current runtime family
+- **WHEN** the user executes `c-eyes benchmark --template linux` on Windows runtime
+- **THEN** benchmark rejects the command with an English error indicating the template does not match the current system
 
 ### Requirement: Benchmark command SHALL enforce elevated privilege
 The benchmark module MUST fail fast when elevated privilege is not available.
@@ -39,8 +39,8 @@ The benchmark module MUST fail fast when elevated privilege is not available.
 - **WHEN** a non-root user executes `c-eyes benchmark` on Linux, EulerOS, or Kylin
 - **THEN** the command exits with an English permission error indicating root privilege is required
 
-### Requirement: Benchmark runtime SHALL use native collection and YAML rule evaluation
-The benchmark runtime SHALL use native collectors and YAML-defined rule metadata instead of packaged original benchmark script assets.
+### Requirement: Benchmark runtime SHALL use native collectors and YAML rule metadata
+The benchmark runtime SHALL use native collectors and YAML-defined rule metadata for Windows and Linux-family templates while preserving each template's benchmark semantics.
 
 #### Scenario: Windows benchmark runs without original script assets
 - **WHEN** the user executes `c-eyes benchmark --template windows`
@@ -51,9 +51,10 @@ The benchmark runtime SHALL use native collectors and YAML-defined rule metadata
 - **WHEN** a benchmark row matches a configured YAML rule
 - **THEN** the row includes readable rule metadata such as check name, expected value, severity, and recommendation
 
-#### Scenario: Linux-family benchmark runs without original script assets
-- **WHEN** the user executes `c-eyes benchmark` on Linux, EulerOS, or Kylin
-- **THEN** benchmark completes using the Unix native benchmark path
+#### Scenario: Linux-family native benchmark path is used
+- **WHEN** the user executes `c-eyes benchmark` on Linux-family runtime
+- **THEN** benchmark uses the Unix native benchmark path
+- **AND** output rows still include readable rule metadata and normalized benchmark fields
 - **AND** the packaged benchmark asset directory does not contain original benchmark `.pl`, `.sh`, `.vbs`, or similar script artifacts
 
 ### Requirement: Benchmark exported result rows SHALL prioritize report readability

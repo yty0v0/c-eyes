@@ -31,7 +31,7 @@ type xmlCmd struct {
 	Value   string `xml:"value"`
 }
 
-func parseXMLFile(path string, template Template) ([]Row, error) {
+func parseXMLFile(path string, template Template, level BaselineLevel) ([]Row, error) {
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func parseXMLFile(path string, template Template) ([]Row, error) {
 
 	host := strings.TrimSpace(parsed.IP)
 	ruleIndex := map[string]benchmarkRule{}
-	if rules, err := loadBenchmarkRuleSet(template); err == nil {
+	if rules, err := loadBenchmarkRuleSet(template, level); err == nil {
 		ruleIndex = buildBenchmarkRuleIndex(rules)
 	}
 	rows := make([]Row, 0, 64)
@@ -206,6 +206,11 @@ func summarize(rows []Row) Summary {
 			summary.Fail++
 		default:
 			summary.Unknown++
+			if normalizeLowerTrim(row.StatusReason) == "informational_check" {
+				summary.Informational++
+			} else {
+				summary.Pending++
+			}
 		}
 
 		if row.Evaluated || status == "pass" || status == "fail" {
@@ -219,6 +224,8 @@ func summarize(rows []Row) Summary {
 	if summary.Total > 0 {
 		summary.CoverageRate = float64(summary.Evaluated) / float64(summary.Total)
 		summary.UnknownRate = float64(summary.Unknown) / float64(summary.Total)
+		summary.InformationalRate = float64(summary.Informational) / float64(summary.Total)
+		summary.PendingRate = float64(summary.Pending) / float64(summary.Total)
 	}
 	return summary
 }

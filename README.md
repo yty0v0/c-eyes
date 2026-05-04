@@ -75,10 +75,16 @@ Web文件异常分析: `c-eyes filescan --all -r`
     -pname  <process_name>                   指定进程名当作分析源
   
 ### 安全基线检查
-安全基线检查： `c-eyes benchmark`
+安全基线检查： `c-eyes benchmark`   (必须使用管理员权限运行)
 ```
-目前支持 Windows，Linux，银河麒麟，EulerOS 四种系统的安全基线检查，必须使用管理员权限运行。
+--baseline-level <level>         基线等级: 1|2|3|4 (默认: 1)
 ```
+目前支持四种系统的安全基线检查（默认根据系统自动选择模板），每个系统支持 1/2/3/4 四个级别基线等级检查（默认使用 1 级）
+- `Windows`
+- `Linux`
+- `银河麒麟`
+- `EulerOS`
+
 
 ## 详细操作说明
 
@@ -203,7 +209,8 @@ Web文件信息获取：c-eyes filescan --all
 ```
 安全基线检查： c-eyes benchmark
 参数：
-    --template <name>        模板选择: auto|windows|linux|euleros|kylin (默认: auto)
+    --template <name>                模板选择: auto|windows|linux|euleros|kylin (默认: auto)
+    --baseline-level <level>         基线等级: 1|2|3|4 (默认: 1)
 说明：
     模板名称详解：auto(自动选择)，windows(Windows系统)，linux(Linux系统)，euleros(EulerOS系统)，kylin(银河麒麟)
     必须使用管理员权限运行

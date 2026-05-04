@@ -1,0 +1,388 @@
+version: 1
+template: linux
+checks:
+- source_id: '0'
+  id: LNX-KERNEL-001
+  name: 系统内核信息
+  category: system
+  description: 采集当前 Linux 内核与主机版本信息。
+  expected: 系统内核版本符合组织支持基线。
+  severity: info
+  recommendation: 核对内核版本是否在受支持范围内。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '1'
+  id: LNX-ACC-001
+  name: 本地账户信息
+  category: account
+  description: 采集 /etc/passwd 内容。
+  expected: 至少存在 1 个本地账户。
+  severity: low
+  recommendation: 核查异常账户、空口令账户和高权限账户。
+  evaluator:
+    kind: int_gte
+    field: account_count
+    min: 1
+- source_id: '2'
+  id: LNX-GRP-001
+  name: 本地用户组信息
+  category: account
+  description: 采集 /etc/group 内容。
+  expected: 至少存在 1 个本地用户组。
+  severity: low
+  recommendation: 核查 wheel、root 等高权限组成员。
+  evaluator:
+    kind: int_gte
+    field: group_count
+    min: 1
+- source_id: '3'
+  id: LNX-SHADOW-001
+  name: 口令影子文件信息
+  category: account
+  description: 采集 /etc/shadow 内容摘要。
+  expected: 弱口令或空口令标记数量为 0。
+  severity: info
+  recommendation: 核查弱口令、空口令及异常口令策略。
+  evaluator:
+    kind: int_equals
+    field: empty_password_count
+    value: '0'
+- source_id: '4'
+  id: LNX-FILE-001
+  name: 关键账户文件属性
+  category: filesystem
+  description: 采集 /etc/shadow、/etc/passwd 等文件属性。
+  expected: 至少 2 个关键认证文件处于受保护状态。
+  severity: medium
+  recommendation: 核查关键认证文件权限与属性是否安全。
+  evaluator:
+    kind: int_gte
+    field: protected_file_count
+    min: 2
+- source_id: '5'
+  id: LNX-TERM-001
+  name: 安全终端配置
+  category: system
+  description: 采集 /etc/securetty 配置。
+  expected: root 登录终端范围受控。
+  severity: medium
+  recommendation: 限制 root 可直接登录的终端范围。
+  evaluator:
+    kind: bool_true
+    field: pts_rule_absent
+- source_id: '6'
+  id: LNX-SVC-001
+  name: 系统服务信息
+  category: service
+  description: 采集 chkconfig 服务启用状态。
+  expected: 系统服务信息可读取。
+  severity: medium
+  recommendation: 核查不必要服务和高风险远程服务。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '7'
+  id: LNX-NET-001
+  name: 网络接口信息
+  category: network
+  description: 采集 ifconfig 输出。
+  expected: 活动网络接口信息可读取。
+  severity: medium
+  recommendation: 核查异常网卡、虚拟网卡和多余地址。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '8'
+  id: LNX-LOGIN-001
+  name: 登录日志信息
+  category: audit
+  description: 采集最近登录记录。
+  expected: 最近登录记录可读取。
+  severity: medium
+  recommendation: 核查异常登录时段与来源。
+  evaluator:
+    kind: int_gte
+    field: entry_count
+    min: 1
+- source_id: '9'
+  id: LNX-LOG-001
+  name: 日志服务配置
+  category: audit
+  description: 采集 syslog/rsyslog 配置。
+  expected: 日志服务配置已启用。
+  severity: medium
+  recommendation: 核查日志接收、转发与保留配置。
+  evaluator:
+    kind: int_gt
+    field: log_target_count
+    min: 0
+- source_id: '10'
+  id: LNX-FS-001
+  name: 磁盘使用信息
+  category: filesystem
+  description: 采集磁盘使用情况。
+  expected: 最高磁盘使用率不高于 90%。
+  severity: medium
+  recommendation: 核查关键挂载点容量和异常分区。
+  evaluator:
+    kind: int_lte
+    field: highest_used_percent
+    max: 90
+- source_id: '11'
+  id: LNX-LOGIN-002
+  name: 登录失败日志
+  category: audit
+  description: 采集最近失败登录记录。
+  expected: 失败登录记录可读取。
+  severity: medium
+  recommendation: 核查暴力破解和异常来源。
+  evaluator:
+    kind: int_gte
+    field: entry_count
+    min: 1
+- source_id: '12'
+  id: LNX-LOG-002
+  name: 系统日志摘要
+  category: audit
+  description: 采集系统日志摘要。
+  expected: 系统日志摘要可读取。
+  severity: medium
+  recommendation: 核查异常报错和安全事件线索。
+  evaluator:
+    kind: int_gte
+    field: log_line_count
+    min: 1
+- source_id: '13'
+  id: LNX-META-001
+  name: 临时工件清理
+  category: meta
+  description: 记录 benchmark 临时工件清理状态。
+  expected: 临时工件已安全清理。
+  severity: low
+  recommendation: 确认扫描过程未残留敏感中间文件。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '14'
+  id: LNX-NET-002
+  name: 网络连接信息
+  category: network
+  description: 采集网络连接与监听端口信息。
+  expected: 网络连接信息可读取。
+  severity: medium
+  recommendation: 核查异常监听端口与外联连接。
+  evaluator:
+    kind: int_gte
+    field: listen_count
+    min: 1
+- source_id: '15'
+  id: LNX-PROC-001
+  name: 进程信息
+  category: process
+  description: 采集当前进程列表。
+  expected: 进程信息可读取。
+  severity: medium
+  recommendation: 核查异常进程和来源不明进程。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '16'
+  id: LNX-FTP-001
+  name: FTP Banner 配置
+  category: service
+  description: 采集 FTP Banner 配置。
+  expected: FTP Banner 不泄露敏感系统信息。
+  severity: medium
+  recommendation: 避免在 FTP Banner 中泄露版本和系统信息。
+  evaluator:
+    kind: bool_true
+    field: banner_configured
+- source_id: '17'
+  id: LNX-FTP-002
+  name: FTP chroot 用户配置
+  category: service
+  description: 采集 FTP chroot 用户列表。
+  expected: FTP 用户隔离列表已配置。
+  severity: medium
+  recommendation: 为 FTP 用户启用隔离目录或核查例外用户。
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- source_id: '19'
+  id: LNX-FTP-004
+  name: FTP Banner 文件内容
+  category: service
+  description: 采集 FTP Banner 文件内容。
+  expected: FTP Banner 文件内容已配置。
+  severity: medium
+  recommendation: 核查对外提示内容是否泄露内部信息。
+  evaluator:
+    kind: bool_true
+    field: banner_content_present
+- source_id: '20'
+  id: LNX-FTP-003
+  name: FTP 访问控制配置
+  category: service
+  description: 采集 ftpaccess 配置。
+  expected: FTP 访问控制配置已存在。
+  severity: medium
+  recommendation: 核查 FTP 访问控制、来源限制和匿名设置。
+  evaluator:
+    kind: int_gt
+    field: rule_count
+    min: 0
+- source_id: '21'
+  id: LNX-RPM-001
+  name: 已安装 RPM 软件包
+  category: software
+  description: 采集 RPM 软件包列表摘要。
+  expected: 已安装 RPM 软件包信息可读取。
+  severity: medium
+  recommendation: 核查异常软件包和不必要组件。
+  evaluator:
+    kind: bool_true
+    field: present
+- source_id: '22'
+  id: LNX-REL-001
+  name: 发行版版本信息
+  category: system
+  description: 采集 Linux 发行版版本信息。
+  expected: 发行版版本信息可识别。
+  severity: medium
+  recommendation: 核查发行版版本与补丁支持周期。
+  evaluator:
+    kind: bool_true
+    field: present
+- id: LNX-NET-ADV-001
+  name: "禁用 IPv4 转发"
+  category: network_hardening
+  description: "采集 net.ipv4.ip_forward 内核参数。"
+  expected: ip_forward = 0?
+  severity: high
+  recommendation: "将内核参数 net.ipv4.ip_forward 设置为 0，禁用 IPv4 转发。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: LNX-NET-ADV-002
+  name: "忽略广播 ICMP 请求"
+  category: network_hardening
+  description: "采集 net.ipv4.icmp_echo_ignore_broadcasts 内核参数。"
+  expected: icmp_echo_ignore_broadcasts = 1?
+  severity: medium
+  recommendation: "将内核参数 net.ipv4.icmp_echo_ignore_broadcasts 设置为 1，忽略广播 ICMP Echo 请求。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '1'
+- id: LNX-NET-ADV-003
+  name: "禁用源路由"
+  category: network_hardening
+  description: "采集 net.ipv4.conf.all.accept_source_route 内核参数。"
+  expected: accept_source_route = 0?
+  severity: high
+  recommendation: "将内核参数 net.ipv4.conf.all.accept_source_route 设置为 0，禁用源路由。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: LNX-NET-ADV-004
+  name: "禁用发送 ICMP 重定向"
+  category: network_hardening
+  description: "采集 net.ipv4.conf.all.send_redirects 内核参数。"
+  expected: send_redirects = 0?
+  severity: medium
+  recommendation: "将内核参数 net.ipv4.conf.all.send_redirects 设置为 0，禁止发送 ICMP 重定向。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: LNX-NET-ADV-005
+  name: "禁用接收 ICMP 重定向"
+  category: network_hardening
+  description: "采集 net.ipv4.conf.all.accept_redirects 内核参数。"
+  expected: accept_redirects = 0?
+  severity: medium
+  recommendation: "将内核参数 net.ipv4.conf.all.accept_redirects 设置为 0，禁止接收 ICMP 重定向。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: LNX-SVC-ADV-001
+  name: "高风险传统服务已禁用"
+  category: service_hardening
+  description: "采集 inetd/xinetd/chkconfig 高风险传统服务暴露迹象。"
+  expected: "未检测到高风险传统服务暴露。"
+  severity: high
+  recommendation: "禁用不必要的传统服务，如 tftp、ypbind、r-services、daytime 等。"
+  evaluator:
+    kind: int_equals
+    field: entry_count
+    value: '0'
+- id: LNX-SVC-ADV-002
+  name: "NFS 服务未启用"
+  category: service_hardening
+  description: "检查运行中的 NFS 相关进程。"
+  expected: "NFS 相关进程数为 0。"
+  severity: high
+  recommendation: "关闭不必要的 NFS 服务和相关进程。"
+  evaluator:
+    kind: int_equals
+    field: int_value
+    value: '0'
+- id: LNX-SSH-ADV-001
+  name: "SSH AllowUsers 规则已配置"
+  category: remote_access
+  description: "采集 sshd_config 中的 AllowUsers 指令。"
+  expected: "至少检测到 1 条 AllowUsers 规则。"
+  severity: medium
+  recommendation: "在 AllowUsers 中显式限制允许通过 SSH 登录的用户。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: LNX-SSH-ADV-002
+  name: "SSH Banner 合规"
+  category: remote_access
+  description: "检查 SSH Banner 与 motd 配置状态。"
+  expected: "SSH Banner 配置符合要求。"
+  severity: medium
+  recommendation: "为 SSH 服务配置合规的 Banner 提示信息。"
+  evaluator:
+    kind: bool_true
+    field: banner_ok
+- id: LNX-TRUST-001
+  name: "Trust 文件暴露检查"
+  category: account
+  description: "采集 .rhosts 与 hosts.equiv 暴露情况。"
+  expected: "未检测到 trust 文件。"
+  severity: high
+  recommendation: "删除 .rhosts、hosts.equiv 等 trust 文件并改用更安全的认证方式。"
+  evaluator:
+    kind: int_equals
+    field: entry_count
+    value: '0'
+- id: LNX-TIME-001
+  name: "时间服务器配置已采集"
+  category: time_policy
+  description: "采集 NTP 或 Chrony 时间服务器配置。"
+  expected: "至少检测到 1 条时间服务器配置。"
+  severity: medium
+  recommendation: "配置可信时间服务器并确保时间同步策略生效。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
+- id: LNX-TIME-002
+  name: "时间同步守护进程已运行"
+  category: time_policy
+  description: "检查 ntpd 或 chronyd 运行状态。"
+  expected: "至少检测到 1 个时间同步守护进程。"
+  severity: medium
+  recommendation: "启动并保持 ntpd 或 chronyd 等时间同步守护进程运行。"
+  evaluator:
+    kind: int_gt
+    field: entry_count
+    min: 0
