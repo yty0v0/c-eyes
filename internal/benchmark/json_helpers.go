@@ -12,3 +12,10 @@ func mustMarshalPrettyJSON(value any) string {
 	}
 	return string(data)
 }
+
+func composeStructuredEvidence(legacyOutput string, structured any) string {
+	return mustMarshalPrettyJSON(map[string]any{
+		"legacy_output": legacyOutput,
+		"structured":    structured,
+	})
+}

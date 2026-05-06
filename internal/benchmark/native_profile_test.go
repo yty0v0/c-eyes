@@ -1,11 +1,6 @@
 package benchmark
 
-import (
-	"strings"
-	"testing"
-
-	"golang.org/x/text/encoding/simplifiedchinese"
-)
+import "testing"
 
 func TestNativeProfileCheckCounts(t *testing.T) {
 	t.Parallel()
@@ -39,7 +34,7 @@ func TestNativeProfileCheckCounts(t *testing.T) {
 	}
 }
 
-func TestNativeProfileForTemplateLevelOverridesMetadataAndKnownCommands(t *testing.T) {
+func TestNativeProfileForTemplateLevelOverridesMetadata(t *testing.T) {
 	t.Parallel()
 
 	linuxLevel1, err := nativeProfileForTemplateLevel(TemplateLinux, BaselineLevel1)
@@ -55,19 +50,6 @@ func TestNativeProfileForTemplateLevelOverridesMetadataAndKnownCommands(t *testi
 	}
 	if linuxLevel1.uuid == linuxLevel2.uuid {
 		t.Fatalf("expected different uuid across levels, got %q", linuxLevel1.uuid)
-	}
-
-	findCommand := func(profile nativeTemplateProfile, id string) string {
-		for _, check := range profile.checks {
-			if check.id == id {
-				return check.command
-			}
-		}
-		return ""
-	}
-
-	if got := findCommand(linuxLevel2, "15"); !strings.Contains(got, "head -300") {
-		t.Fatalf("expected level2 linux process command to include head -300, got %q", got)
 	}
 
 	winLevel3, err := nativeProfileForTemplateLevel(TemplateWindows, BaselineLevel3)
@@ -116,41 +98,5 @@ func TestNativeWindowsProfileHasExpectedCoreIDs(t *testing.T) {
 		if _, ok := gotIDs[id]; !ok {
 			t.Fatalf("missing expected windows check id: %s", id)
 		}
-	}
-}
-
-func TestKeepFirstNonEmptyLines(t *testing.T) {
-	t.Parallel()
-
-	in := "\nline1\n\nline2\nline3\n"
-	got := keepFirstNonEmptyLines(in, 2)
-	if got != "line1\nline2" {
-		t.Fatalf("expected first two non-empty lines, got %q", got)
-	}
-}
-
-func TestNormalizeCommandOutputGBKOnWindows(t *testing.T) {
-	t.Parallel()
-
-	src := "管理员账户"
-	encoded, err := simplifiedchinese.GBK.NewEncoder().Bytes([]byte(src))
-	if err != nil {
-		t.Fatalf("encode GBK: %v", err)
-	}
-
-	got := normalizeCommandOutput(TemplateWindows, encoded)
-	if got != src {
-		t.Fatalf("expected %q, got %q", src, got)
-	}
-}
-
-func TestNormalizeCommandOutputUTF16LEWithBOM(t *testing.T) {
-	t.Parallel()
-
-	// BOM + 'A' + '中' in UTF-16LE bytes.
-	input := []byte{0xFF, 0xFE, 0x41, 0x00, 0x2D, 0x4E}
-	got := normalizeCommandOutput(TemplateWindows, input)
-	if got != "A中" {
-		t.Fatalf("expected %q, got %q", "A中", got)
 	}
 }

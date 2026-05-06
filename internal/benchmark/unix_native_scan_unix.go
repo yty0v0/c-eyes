@@ -1,4 +1,4 @@
-﻿//go:build !windows
+//go:build !windows
 
 package benchmark
 
@@ -34,15 +34,7 @@ func scanUnixNativeBenchmark(ctx context.Context, template Template, level Basel
 		return ScanResult{}, true, err
 	}
 
-	var (
-		accounts   []accountscan.AccountInfo
-		groups     []usergroupscan.UserGroupInfo
-		processes  []processscan.ProcessInfo
-		startups   []startupscan.StartupInfo
-		interfaces []unixInterfaceRecord
-		disks      []unixFilesystemRecord
-		sensitive  []unixSensitiveFileRecord
-	)
+	state := &unixBenchmarkCollectorState{}
 	results := make([]benchmarkCheckResult, 0, len(profile.checks))
 	for idx, check := range profile.checks {
 		select {
@@ -53,229 +45,23 @@ func scanUnixNativeBenchmark(ctx context.Context, template Template, level Basel
 
 		notifyProgress(progress, benchmarkRangedProgress(benchmarkProgressExecuteStart, benchmarkProgressExecuteEnd, idx+1, len(profile.checks)), benchmarkProgressTotalSteps, "execute checks")
 
-		actual, runErr := executeNativeCheckCommand(ctx, template, check)
-		actual = keepFirstNonEmptyLines(actual, check.limitNonEmptyLines)
-		actual = normalizeTrim(actual)
-		result := benchmarkCheckResult{
-			ID:          check.id,
-			SectionType: "display",
-			Command:     check.command,
-			Actual:      actual,
-			Evidence:    actual,
-			Eval: map[string]any{
-				"actual": actual,
-			},
-		}
-		switch template {
-		case TemplateLinux:
-			switch check.id {
-			case "0":
-				result.Eval["present"] = strings.TrimSpace(actual) != ""
-			case "1":
-				if accounts == nil {
-					if scan, err := accountscan.Scan(ctx, accountscan.AccountScanParams{}); err == nil {
-						accounts = scan.Rows
-					}
-				}
-				if len(accounts) > 0 {
-					result = shapeUnixAccountsResult(result, accounts)
-				}
-			case "2":
-				if groups == nil {
-					if scan, err := usergroupscan.Scan(ctx, usergroupscan.UserGroupScanParams{}); err == nil {
-						groups = scan.Rows
-					}
-				}
-				if len(groups) > 0 {
-					result = shapeUnixGroupsResult(result, groups)
-				}
-			case "3":
-				result = shapeUnixShadowSummary(result)
-			case "4":
-				if sensitive == nil {
-					sensitive = collectUnixSensitiveFiles([]string{"/etc/shadow", "/etc/gshadow", "/etc/passwd"})
-				}
-				if len(sensitive) > 0 {
-					result = shapeUnixSensitiveFilesResult(result, sensitive)
-				}
-			case "5":
-				if value, err := collectUnixConfigSummary(template, check.id); err == nil && strings.TrimSpace(value.Actual) != "" {
-					result = value
-				}
-			case "6":
-				if startups == nil {
-					if scan, err := startupscan.Scan(ctx, startupscan.StartupScanParams{}); err == nil {
-						startups = scan.Rows
-					}
-				}
-				if len(startups) > 0 {
-					result = shapeUnixServicesResult(result, startups)
-				}
-			case "7":
-				if interfaces == nil {
-					if rows, err := collectUnixInterfaces(); err == nil {
-						interfaces = rows
-					}
-				}
-				if len(interfaces) > 0 {
-					result = shapeUnixInterfacesResult(result, interfaces)
-				}
-			case "10":
-				if disks == nil {
-					if rows, err := collectUnixFilesystems(); err == nil {
-						disks = rows
-					}
-				}
-				if len(disks) > 0 {
-					result = shapeUnixFilesystemsResult(result, disks)
-				}
-			case "15":
-				if processes == nil {
-					if rows, err := processscan.Scan(ctx, processscan.ProcessScanParams{}); err == nil {
-						processes = rows
-					}
-				}
-				if len(processes) > 0 {
-					result = shapeUnixProcessesResult(result, processes)
-				}
-			case "8", "9", "11", "12", "14", "16", "17", "19", "20", "22":
-				if value, err := collectUnixConfigSummary(template, check.id); err == nil {
-					result = value
-				}
-			case "13":
-				result.Actual = "无需清理临时工件"
-				result.Evidence = result.Actual
-				result.Eval["present"] = true
+		result, handledDirect, directErr := collectUnixNativeCheck(ctx, template, check.id, state)
+		runErr := directErr
+		if handledDirect {
+			if result.Eval == nil {
+				result.Eval = map[string]any{}
 			}
-		case TemplateEulerOS:
-			switch check.id {
-			case "0":
-				result.Eval["present"] = strings.TrimSpace(actual) != ""
-			case "1":
-				if accounts == nil {
-					if scan, err := accountscan.Scan(ctx, accountscan.AccountScanParams{}); err == nil {
-						accounts = scan.Rows
-					}
-				}
-				if len(accounts) > 0 {
-					result = shapeUnixAccountsResult(result, accounts)
-				}
-			case "2":
-				if groups == nil {
-					if scan, err := usergroupscan.Scan(ctx, usergroupscan.UserGroupScanParams{}); err == nil {
-						groups = scan.Rows
-					}
-				}
-				if len(groups) > 0 {
-					result = shapeUnixGroupsResult(result, groups)
-				}
-			case "4":
-				if startups == nil {
-					if scan, err := startupscan.Scan(ctx, startupscan.StartupScanParams{}); err == nil {
-						startups = scan.Rows
-					}
-				}
-				if len(startups) > 0 {
-					result = shapeUnixServicesResult(result, startups)
-				}
-			case "5":
-				if value, err := collectUnixConfigSummary(template, check.id); err == nil {
-					result = value
-				}
-			case "6":
-				if interfaces == nil {
-					if rows, err := collectUnixInterfaces(); err == nil {
-						interfaces = rows
-					}
-				}
-				if len(interfaces) > 0 {
-					result = shapeUnixInterfacesResult(result, interfaces)
-				}
-			case "10":
-				if disks == nil {
-					if rows, err := collectUnixFilesystems(); err == nil {
-						disks = rows
-					}
-				}
-				if len(disks) > 0 {
-					result = shapeUnixFilesystemsResult(result, disks)
-				}
-			case "3", "8", "9", "11", "14", "18":
-				if value, err := collectUnixConfigSummary(template, check.id); err == nil {
-					result = value
-				}
-			case "7":
-				result.Actual = "无需清理临时工件"
-				result.Evidence = result.Actual
-				result.Eval["present"] = true
+			result.Command = benchmarkCollectorCommand(template, check.id, "")
+			if result.SectionType == "" {
+				result.SectionType = "display"
 			}
-		case TemplateKylin:
-			switch check.id {
-			case "7":
-				result.Eval["present"] = strings.TrimSpace(actual) != ""
-			case "1":
-				if startups == nil {
-					if scan, err := startupscan.Scan(ctx, startupscan.StartupScanParams{}); err == nil {
-						startups = scan.Rows
-					}
-				}
-				if len(startups) > 0 {
-					result = shapeUnixServicesResult(result, startups)
-				}
-			case "3":
-				if sensitive == nil {
-					sensitive = collectUnixSensitiveFiles([]string{"/etc/shadow", "/etc/gshadow", "/etc/passwd"})
-				}
-				if len(sensitive) > 0 {
-					result = shapeUnixSensitiveFilesResult(result, sensitive)
-				}
-			case "4":
-				result = shapeUnixShadowSummary(result)
-			case "6":
-				if groups == nil {
-					if scan, err := usergroupscan.Scan(ctx, usergroupscan.UserGroupScanParams{}); err == nil {
-						groups = scan.Rows
-					}
-				}
-				if len(groups) > 0 {
-					result = shapeUnixGroupsResult(result, groups)
-				}
-			case "10":
-				if disks == nil {
-					if rows, err := collectUnixFilesystems(); err == nil {
-						disks = rows
-					}
-				}
-				if len(disks) > 0 {
-					result = shapeUnixFilesystemsResult(result, disks)
-				}
-			case "11":
-				if interfaces == nil {
-					if rows, err := collectUnixInterfaces(); err == nil {
-						interfaces = rows
-					}
-				}
-				if len(interfaces) > 0 {
-					result = shapeUnixInterfacesResult(result, interfaces)
-				}
-			case "14":
-				if processes == nil {
-					if rows, err := processscan.Scan(ctx, processscan.ProcessScanParams{}); err == nil {
-						processes = rows
-					}
-				}
-				if len(processes) > 0 {
-					result = shapeUnixProcessesResult(result, processes)
-				}
-			case "5", "8", "12", "13", "15":
-				if value, err := collectUnixConfigSummary(template, check.id); err == nil {
-					result = value
-				}
-			case "2":
-				result.Actual = "无需清理临时工件"
-				result.Evidence = result.Actual
-				result.Eval["present"] = true
+			result.Actual = normalizeTrim(result.Actual)
+			result.Evidence = normalizeTrim(result.Evidence)
+			if _, ok := result.Eval["actual"]; !ok {
+				result.Eval["actual"] = result.Actual
 			}
+		} else {
+			return ScanResult{}, true, fmt.Errorf("native unix benchmark collector missing direct mapping for template=%s check=%s", template, check.id)
 		}
 		result = shapeUnixBenchmarkResult(template, result)
 		result = shapeUnixAdvancedResult(result)
@@ -874,15 +660,6 @@ func collectUnixConfigSummary(template Template, checkID string) (benchmarkCheck
 	switch template {
 	case TemplateLinux:
 		switch checkID {
-		case "8":
-			value, err := readLastOutput(false)
-			return configResult(checkID, value, err)
-		case "11":
-			value, err := readLastOutput(true)
-			return configResult(checkID, value, err)
-		case "14":
-			value, err := readNetstatOutput()
-			return configResult(checkID, value, err)
 		case "5":
 			value, err := readFileIfExists("/etc/securetty", true, 120)
 			return configResult(checkID, value, err)
@@ -934,15 +711,6 @@ func collectUnixConfigSummary(template Template, checkID string) (benchmarkCheck
 		case "5":
 			value, err := readFileIfExists("/etc/securetty", true, 120)
 			return configResult(checkID, value, err)
-		case "8":
-			value, err := readLastOutput(false)
-			return configResult(checkID, value, err)
-		case "11":
-			value, err := readLastOutput(true)
-			return configResult(checkID, value, err)
-		case "14":
-			value, err := readNetstatOutput()
-			return configResult(checkID, value, err)
 		case "9":
 			value, err := filterLinesContaining("/etc/ssh/sshd_config", []string{"AllowUsers", "DenyUsers"}, 120)
 			return configResult(checkID, value, err)
@@ -952,20 +720,11 @@ func collectUnixConfigSummary(template Template, checkID string) (benchmarkCheck
 		}
 	case TemplateKylin:
 		switch checkID {
-		case "5":
-			value, err := readLastOutput(true)
-			return configResult(checkID, value, err)
 		case "8":
 			value, err := collectUnixReleaseInfo(template)
 			return configResult(checkID, value, err)
-		case "12":
-			value, err := readLastOutput(false)
-			return configResult(checkID, value, err)
 		case "13":
 			value, err := readFirstExistingFile([]string{"/var/log/syslog", "/var/log/messages"}, false, 20)
-			return configResult(checkID, value, err)
-		case "15":
-			value, err := readNetstatOutput()
 			return configResult(checkID, value, err)
 		}
 	}
@@ -1008,6 +767,16 @@ func configResult(checkID, value string, err error) (benchmarkCheckResult, error
 func applyConfigMetrics(checkID, value string, eval map[string]any) {
 	lines := nonEmptyLines(value)
 	switch checkID {
+	case "5":
+		ptsRuleAbsent := len(lines) > 0
+		for _, line := range lines {
+			lower := strings.ToLower(strings.TrimSpace(line))
+			if strings.Contains(lower, "pts") {
+				ptsRuleAbsent = false
+				break
+			}
+		}
+		eval["pts_rule_absent"] = ptsRuleAbsent
 	case "8", "11":
 		count := len(lines)
 		for _, line := range lines {
@@ -1019,6 +788,8 @@ func applyConfigMetrics(checkID, value string, eval map[string]any) {
 		eval["entry_count"] = count
 	case "9":
 		eval["rule_count"] = len(lines)
+		eval["log_target_count"] = len(lines)
+		eval["access_control_present"] = len(lines) > 0
 	case "12", "13", "3":
 		eval["log_line_count"] = len(lines)
 	case "14", "15":
@@ -1037,6 +808,10 @@ func applyConfigMetrics(checkID, value string, eval map[string]any) {
 		eval["established_count"] = established
 	case "17":
 		eval["entry_count"] = len(lines)
+	case "16":
+		eval["banner_configured"] = len(lines) > 0
+	case "19":
+		eval["banner_content_present"] = len(lines) > 0
 	case "20":
 		eval["rule_count"] = len(lines)
 	}
@@ -1223,6 +998,7 @@ func shapeUnixAdvancedResult(result benchmarkCheckResult) benchmarkCheckResult {
 		result.Actual = fmt.Sprintf("检测到 %d 条 SSH Banner 规则", count)
 		result.Eval["entry_count"] = count
 		result.Eval["present"] = count > 0
+		result.Eval["banner_ok"] = count > 0
 	case "KYL-SSH-ADV-001":
 		ok := strings.Contains(strings.ToLower(result.Evidence), "check result:true")
 		result.Actual = "已检测 SSH Banner/访问控制合规状态"
@@ -1351,17 +1127,3 @@ func filterLinesContaining(path string, needles []string, limit int) (string, er
 	}
 	return strings.Join(lines, "\n"), nil
 }
-
-func readLastOutput(failed bool) (string, error) {
-	command := "last -100 2>/dev/null"
-	if failed {
-		command = "lastb -100 2>/dev/null"
-	}
-	return executeNativeCheckCommand(context.Background(), TemplateLinux, nativeCheck{shell: "sh", command: command, limitNonEmptyLines: 120})
-}
-
-func readNetstatOutput() (string, error) {
-	return executeNativeCheckCommand(context.Background(), TemplateLinux, nativeCheck{shell: "sh", command: "netstat -anp 2>/dev/null | head -300", limitNonEmptyLines: 300})
-}
-
-

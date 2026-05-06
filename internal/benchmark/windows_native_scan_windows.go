@@ -18,12 +18,22 @@ import (
 	"edrsystem/internal/startupscan"
 	"edrsystem/internal/usergroupscan"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
 type windowsBenchmarkCollectorState struct {
 	hostInfo *processscan.HostInfo
-	policy   *windowsSecurityPolicyData
+
+	systemAccessLoaded    bool
+	systemAccess          map[string]string
+	systemAccessErr       error
+	eventAuditLoaded      bool
+	eventAudit            map[string]string
+	eventAuditErr         error
+	privilegeRightsLoaded bool
+	privilegeRights       map[string][]string
+	privilegeRightsErr    error
 
 	userAccounts []windowsUserAccountRecord
 	groupDetails []windowsGroupRecord
@@ -31,12 +41,40 @@ type windowsBenchmarkCollectorState struct {
 	services     []*startupscan.StartupInfo
 	process      []*processscan.ProcessInfo
 
-	startupRows     []windowsStartupCommandRecord
 	startupCommands []windowsStartupCommandEntry
 	connections     []windowsNetConnection
 	shares          []windowsShareInfo
 	hotfixes        []windowsHotfixInfo
 	namedServices   map[string]windowsNamedServiceStatus
+}
+
+type windowsUserAccountRecord struct {
+	Caption            string `json:"Caption"`
+	Description        string `json:"Description,omitempty"`
+	PasswordChangeable *bool  `json:"PasswordChangeable,omitempty"`
+	PasswordExpires    *bool  `json:"PasswordExpires,omitempty"`
+	PasswordRequired   *bool  `json:"PasswordRequired,omitempty"`
+	Lockout            *bool  `json:"Lockout,omitempty"`
+	Status             string `json:"Status,omitempty"`
+}
+
+type windowsGroupRecord struct {
+	Caption     string `json:"Caption"`
+	Description string `json:"Description,omitempty"`
+	Status      string `json:"Status,omitempty"`
+}
+
+type windowsServiceRecord struct {
+	Caption   string `json:"Caption"`
+	PathName  string `json:"PathName,omitempty"`
+	StartMode string `json:"StartMode,omitempty"`
+	State     string `json:"State,omitempty"`
+}
+
+type windowsStartupCommandRecord struct {
+	Caption  string `json:"Caption"`
+	Command  string `json:"Command,omitempty"`
+	Location string `json:"Location,omitempty"`
 }
 
 type windowsStartupCommandEntry struct {
@@ -153,7 +191,7 @@ func scanWindowsNativeBenchmark(ctx context.Context, template Template, level Ba
 		result, err := spec.Collect(ctx, state)
 		result.ID = spec.ID
 		result.SectionType = firstNonEmpty(spec.SectionType, result.SectionType, "display")
-		result.Command = firstNonEmpty(spec.Command, result.Command)
+		result.Command = benchmarkCollectorCommand(template, spec.ID, firstNonEmpty(spec.Command, result.Command))
 
 		if err != nil {
 			message := fmt.Sprintf("collector execution failed: %v", err)
@@ -369,18 +407,18 @@ func windowsBenchmarkCollectorSpecs() []windowsBenchmarkCollectorSpec {
 		{ID: "W-PRIV-003", SectionType: "auto", Command: "native/windows/security_policy/Privilege Rights/SeNetworkLogonRight", Collect: collectWindowsNetworkLogonRightCheck},
 		{ID: "W-RDP-001", SectionType: "auto", Command: "native/windows/registry/RDP/PortNumber", Collect: collectWindowsRDPPortCheck},
 		{ID: "W-AUTORUN-001", SectionType: "auto", Command: "native/windows/registry/Explorer/NoDriveTypeAutoRun", Collect: collectWindowsNoDriveTypeAutoRunCheck},
-		{ID: "8", SectionType: "display", Command: `wmic timezone get caption,standardname | find /i /v "standardname"`, Collect: collectWindowsTimezoneCheck},
-		{ID: "4", SectionType: "display", Command: `wmic useraccount where Domain="%computername%" get caption,description,PasswordChangeable,PasswordExpires,PasswordRequired,Lockout,status`, Collect: collectWindowsAccountsCheck},
-		{ID: "0", SectionType: "display", Command: `netstat -an`, Collect: collectWindowsConnectionsCheck},
-		{ID: "9", SectionType: "display", Command: `wmic startup get caption,command,location`, Collect: collectWindowsStartupCommandsCheck},
-		{ID: "12", SectionType: "display", Command: `wmic qfe get description,hotfixid,installedon,installedby`, Collect: collectWindowsHotfixesCheck},
-		{ID: "5", SectionType: "display", Command: `wmic group where Domain="%computername%" get caption,description,status`, Collect: collectWindowsGroupsCheck},
-		{ID: "6", SectionType: "display", Command: `wmic service get caption,pathname,startmode,state`, Collect: collectWindowsServicesCheck},
-		{ID: "1", SectionType: "display", Command: `tasklist`, Collect: collectWindowsProcessesCheck},
-		{ID: "3", SectionType: "display", Command: `hostname`, Collect: collectWindowsHostNameCheck},
-		{ID: "2", SectionType: "display", Command: `wmic os get caption,csdversion,version`, Collect: collectWindowsOSCheck},
-		{ID: "10", SectionType: "display", Command: `wmic share get description,name,path`, Collect: collectWindowsSharesCheck},
-		{ID: "7", SectionType: "display", Command: `del /f/s/q %tmp%\\NSF{nsf_tm}_*.{log,txt,vbs,bat}`, Collect: collectWindowsCleanupCheck},
+		{ID: "8", SectionType: "display", Command: `native/windows/timezone`, Collect: collectWindowsTimezoneCheck},
+		{ID: "4", SectionType: "display", Command: `native/windows/local_accounts`, Collect: collectWindowsAccountsCheck},
+		{ID: "0", SectionType: "display", Command: `native/windows/network_connections`, Collect: collectWindowsConnectionsCheck},
+		{ID: "9", SectionType: "display", Command: `native/windows/startup_commands`, Collect: collectWindowsStartupCommandsCheck},
+		{ID: "12", SectionType: "display", Command: `native/windows/hotfixes`, Collect: collectWindowsHotfixesCheck},
+		{ID: "5", SectionType: "display", Command: `native/windows/local_groups`, Collect: collectWindowsGroupsCheck},
+		{ID: "6", SectionType: "display", Command: `native/windows/services`, Collect: collectWindowsServicesCheck},
+		{ID: "1", SectionType: "display", Command: `native/windows/processes`, Collect: collectWindowsProcessesCheck},
+		{ID: "3", SectionType: "display", Command: `native/windows/hostname`, Collect: collectWindowsHostNameCheck},
+		{ID: "2", SectionType: "display", Command: `native/windows/os_info`, Collect: collectWindowsOSCheck},
+		{ID: "10", SectionType: "display", Command: `native/windows/shares`, Collect: collectWindowsSharesCheck},
+		{ID: "7", SectionType: "display", Command: `native/windows/cleanup_marker`, Collect: collectWindowsCleanupCheck},
 	}
 }
 
@@ -455,34 +493,26 @@ func collectWindowsTimezoneCheck(_ context.Context, _ *windowsBenchmarkCollector
 
 func collectWindowsAccountsCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
 	if state.userAccounts == nil {
-		rows, err := collectWindowsUserAccounts(ctx)
+		result, err := accountscan.Scan(ctx, accountscan.AccountScanParams{})
 		if err != nil {
-			rows = nil
+			return benchmarkCheckResult{}, err
 		}
-		if len(rows) == 0 {
-			result, scanErr := accountscan.Scan(ctx, accountscan.AccountScanParams{})
-			if scanErr != nil && err != nil {
-				return benchmarkCheckResult{}, err
+		rows := make([]windowsUserAccountRecord, 0, len(result.Rows))
+		for i := range result.Rows {
+			row := result.Rows[i]
+			caption := derefString(row.Name)
+			if host := derefString(row.Hostname); host != "" && caption != "" {
+				caption = host + `\` + caption
 			}
-			if scanErr == nil {
-				rows = make([]windowsUserAccountRecord, 0, len(result.Rows))
-				for i := range result.Rows {
-					row := result.Rows[i]
-					caption := derefString(row.Name)
-					if host := derefString(row.Hostname); host != "" && caption != "" {
-						caption = host + `\` + caption
-					}
-					rows = append(rows, windowsUserAccountRecord{
-						Caption:            caption,
-						Description:        derefString(row.Description),
-						PasswordChangeable: row.PasswordChangeable,
-						PasswordExpires:    row.PasswordExpires,
-						PasswordRequired:   row.PasswordRequired,
-						Lockout:            row.Lockout,
-						Status:             derefString(row.StatusText),
-					})
-				}
-			}
+			rows = append(rows, windowsUserAccountRecord{
+				Caption:            caption,
+				Description:        derefString(row.Description),
+				PasswordChangeable: row.PasswordChangeable,
+				PasswordExpires:    row.PasswordExpires,
+				PasswordRequired:   row.PasswordRequired,
+				Lockout:            row.Lockout,
+				Status:             derefString(row.StatusText),
+			})
 		}
 		state.userAccounts = rows
 	}
@@ -510,30 +540,22 @@ func collectWindowsAccountsCheck(ctx context.Context, state *windowsBenchmarkCol
 
 func collectWindowsGroupsCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
 	if state.groupDetails == nil {
-		rows, err := collectWindowsLocalGroups(ctx)
+		result, err := usergroupscan.Scan(ctx, usergroupscan.UserGroupScanParams{})
 		if err != nil {
-			rows = nil
+			return benchmarkCheckResult{}, err
 		}
-		if len(rows) == 0 {
-			result, scanErr := usergroupscan.Scan(ctx, usergroupscan.UserGroupScanParams{})
-			if scanErr != nil && err != nil {
-				return benchmarkCheckResult{}, err
+		rows := make([]windowsGroupRecord, 0, len(result.Rows))
+		for i := range result.Rows {
+			row := result.Rows[i]
+			caption := derefString(row.Name)
+			if host := derefString(row.Hostname); host != "" && caption != "" {
+				caption = host + `\` + caption
 			}
-			if scanErr == nil {
-				rows = make([]windowsGroupRecord, 0, len(result.Rows))
-				for i := range result.Rows {
-					row := result.Rows[i]
-					caption := derefString(row.Name)
-					if host := derefString(row.Hostname); host != "" && caption != "" {
-						caption = host + `\` + caption
-					}
-					rows = append(rows, windowsGroupRecord{
-						Caption:     caption,
-						Description: derefString(row.Description),
-						Status:      derefString(row.StatusText),
-					})
-				}
-			}
+			rows = append(rows, windowsGroupRecord{
+				Caption:     caption,
+				Description: derefString(row.Description),
+				Status:      derefString(row.StatusText),
+			})
 		}
 		state.groupDetails = rows
 	}
@@ -557,27 +579,19 @@ func collectWindowsGroupsCheck(ctx context.Context, state *windowsBenchmarkColle
 
 func collectWindowsServicesCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
 	if state.serviceRows == nil {
-		rows, err := collectWindowsServiceDetails(ctx)
+		result, err := startupscan.Scan(ctx, startupscan.StartupScanParams{})
 		if err != nil {
-			rows = nil
+			return benchmarkCheckResult{}, err
 		}
-		if len(rows) == 0 {
-			result, scanErr := startupscan.Scan(ctx, startupscan.StartupScanParams{})
-			if scanErr != nil && err != nil {
-				return benchmarkCheckResult{}, err
-			}
-			if scanErr == nil {
-				rows = make([]windowsServiceRecord, 0, len(result.Rows))
-				for i := range result.Rows {
-					row := result.Rows[i]
-					rows = append(rows, windowsServiceRecord{
-						Caption:   firstNonEmpty(derefString(row.ShowName), derefString(row.Name)),
-						PathName:  derefString(row.ExecPath),
-						StartMode: windowsStartModeText(row.StartType),
-						State:     windowsFallbackServiceState(row.Enable),
-					})
-				}
-			}
+		rows := make([]windowsServiceRecord, 0, len(result.Rows))
+		for i := range result.Rows {
+			row := result.Rows[i]
+			rows = append(rows, windowsServiceRecord{
+				Caption:   firstNonEmpty(derefString(row.ShowName), derefString(row.Name)),
+				PathName:  derefString(row.ExecPath),
+				StartMode: windowsStartModeText(row.StartType),
+				State:     windowsFallbackServiceState(row.Enable),
+			})
 		}
 		state.serviceRows = rows
 	}
@@ -635,26 +649,15 @@ func collectWindowsProcessesCheck(ctx context.Context, state *windowsBenchmarkCo
 }
 
 func collectWindowsStartupCommandsCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
-	if state.startupRows == nil {
-		rows, err := collectWindowsStartupCommandDetails(ctx)
+	_ = ctx
+	if state.startupCommands == nil {
+		entries, err := collectWindowsStartupCommands()
 		if err != nil {
-			entries, collectErr := collectWindowsStartupCommands()
-			if collectErr != nil {
-				return benchmarkCheckResult{}, err
-			}
-			state.startupCommands = entries
-		} else {
-			state.startupRows = rows
+			return benchmarkCheckResult{}, err
 		}
+		state.startupCommands = entries
 	}
-	evidence := make([]map[string]any, 0, len(state.startupRows)+len(state.startupCommands))
-	for _, row := range state.startupRows {
-		evidence = append(evidence, map[string]any{
-			"Caption":  row.Caption,
-			"Command":  row.Command,
-			"Location": row.Location,
-		})
-	}
+	evidence := make([]map[string]any, 0, len(state.startupCommands))
 	for _, row := range state.startupCommands {
 		evidence = append(evidence, map[string]any{
 			"Caption":  row.Name,
@@ -662,12 +665,8 @@ func collectWindowsStartupCommandsCheck(ctx context.Context, state *windowsBench
 			"Location": row.Location,
 		})
 	}
-	count := len(state.startupRows)
-	actual := summarizeStartupCommandRows(state.startupRows)
-	if len(state.startupCommands) > 0 {
-		count = len(state.startupCommands)
-		actual = summarizeStartupCommands(state.startupCommands)
-	}
+	count := len(state.startupCommands)
+	actual := summarizeStartupCommands(state.startupCommands)
 	return benchmarkCheckResult{
 		Actual:   actual,
 		Evidence: mustMarshalPrettyJSON(evidence),
@@ -720,8 +719,9 @@ func collectWindowsSharesCheck(_ context.Context, state *windowsBenchmarkCollect
 }
 
 func collectWindowsHotfixesCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
+	_ = ctx
 	if state.hotfixes == nil {
-		hotfixes, err := collectWindowsHotfixes(ctx)
+		hotfixes, err := collectWindowsHotfixesFromRegistry()
 		if err != nil {
 			return benchmarkCheckResult{}, err
 		}
@@ -1182,26 +1182,10 @@ func collectWindowsAUOptionsCheck(_ context.Context, _ *windowsBenchmarkCollecto
 }
 
 func collectWindowsDEPPolicyCheck(ctx context.Context, _ *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
-	type depRow struct {
-		Value int64 `json:"DataExecutionPrevention_SupportPolicy"`
-	}
-	rows, err := runWindowsPowerShellArray[depRow](ctx, `
-if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
-    $source = Get-CimInstance -ClassName Win32_OperatingSystem
-} elseif (Get-Command Get-WmiObject -ErrorAction SilentlyContinue) {
-    $source = Get-WmiObject -Class Win32_OperatingSystem
-} else {
-    $source = @()
-}
-$items = $source | Select-Object @{Name='DataExecutionPrevention_SupportPolicy';Expression={[int64]$_.DataExecutionPrevention_SupportPolicy}}
-if (@($items).Count -eq 0) { '[]' } else { @($items) | ConvertTo-Json -Compress -Depth 3 }
-`)
+	_ = ctx
+	value, err := collectWindowsDEPPolicy()
 	if err != nil {
 		return benchmarkCheckResult{}, err
-	}
-	value := int64(-1)
-	if len(rows) > 0 {
-		value = rows[0].Value
 	}
 	return benchmarkCheckResult{
 		Actual: fmt.Sprintf("DataExecutionPrevention_SupportPolicy=%d", value),
@@ -1239,7 +1223,7 @@ func collectWindowsSMBPort445Check(_ context.Context, state *windowsBenchmarkCol
 			"listening": listening,
 		}),
 		Eval: map[string]any{
-			"listening":    listening,
+			"listening":     listening,
 			"not_listening": !listening,
 		},
 	}, nil
@@ -1286,11 +1270,11 @@ func collectWindowsSecurityEventLogMaxSizeCheck(_ context.Context, _ *windowsBen
 }
 
 func collectWindowsNetworkLogonRightCheck(ctx context.Context, state *windowsBenchmarkCollectorState) (benchmarkCheckResult, error) {
-	policy, err := state.securityPolicy(ctx)
+	policy, err := state.privilegeRightsPolicy(ctx)
 	if err != nil {
 		return benchmarkCheckResult{}, err
 	}
-	items := policy.PrivilegeRights["SeNetworkLogonRight"]
+	items := policy["SeNetworkLogonRight"]
 	actual := fmt.Sprintf("SeNetworkLogonRight=%s", strings.Join(items, ","))
 	return benchmarkCheckResult{
 		Actual: actual,
@@ -1424,25 +1408,32 @@ func windowsServiceStatus(ctx context.Context, state *windowsBenchmarkCollectorS
 	if cached, ok := state.namedServices[serviceName]; ok {
 		return cached, nil
 	}
-
-	rows, err := runWindowsPowerShellArray[windowsNamedServiceStatus](ctx, fmt.Sprintf(`
-if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
-    $source = Get-CimInstance -ClassName Win32_Service -Filter "Name='%s'"
-} elseif (Get-Command Get-WmiObject -ErrorAction SilentlyContinue) {
-    $source = Get-WmiObject -Class Win32_Service -Filter "Name='%s'"
-} else {
-    $source = @()
-}
-$items = $source | Select-Object Name, State, StartMode
-if (@($items).Count -eq 0) { '[]' } else { @($items) | ConvertTo-Json -Compress -Depth 3 }
-`, serviceName, serviceName))
-	if err != nil {
-		return windowsNamedServiceStatus{}, err
+	if state.services == nil {
+		result, err := startupscan.Scan(ctx, startupscan.StartupScanParams{})
+		if err != nil {
+			return windowsNamedServiceStatus{}, err
+		}
+		state.services = make([]*startupscan.StartupInfo, 0, len(result.Rows))
+		for i := range result.Rows {
+			row := result.Rows[i]
+			state.services = append(state.services, &row)
+		}
 	}
-
 	status := windowsNamedServiceStatus{Name: serviceName}
-	if len(rows) > 0 {
-		status = rows[0]
+	for _, row := range state.services {
+		if row == nil {
+			continue
+		}
+		name := strings.TrimSpace(derefString(row.Name))
+		if !strings.EqualFold(name, serviceName) {
+			continue
+		}
+		status = windowsNamedServiceStatus{
+			Name:      serviceName,
+			State:     windowsFallbackServiceState(row.Enable),
+			StartMode: windowsStartModeText(row.StartType),
+		}
+		break
 	}
 	state.namedServices[serviceName] = status
 	return status, nil
@@ -1756,10 +1747,7 @@ func collectWindowsFilesystemInfo() (windowsFilesystemInfo, error) {
 }
 
 func collectWindowsAntivirusInfo(ctx context.Context, services []*startupscan.StartupInfo, processes []*processscan.ProcessInfo) (windowsAntivirusInfo, error) {
-	securityCenterProducts, err := collectWindowsSecurityCenterProductNames(ctx)
-	if err != nil {
-		return windowsAntivirusInfo{}, err
-	}
+	_ = ctx
 	productHints, err := collectWindowsAntivirusProductHints()
 	if err != nil {
 		return windowsAntivirusInfo{}, err
@@ -1767,10 +1755,10 @@ func collectWindowsAntivirusInfo(ctx context.Context, services []*startupscan.St
 
 	serviceIndicators := collectWindowsAntivirusServiceIndicators(services)
 	processIndicators := collectWindowsAntivirusProcessIndicators(processes)
-	detected := len(securityCenterProducts) > 0 || len(productHints) > 0 || len(serviceIndicators) > 0 || len(processIndicators) > 0
+	detected := len(productHints) > 0 || len(serviceIndicators) > 0 || len(processIndicators) > 0
 	return windowsAntivirusInfo{
 		Detected:               detected,
-		SecurityCenterProducts: securityCenterProducts,
+		SecurityCenterProducts: nil,
 		ProductHints:           productHints,
 		ServiceIndicators:      serviceIndicators,
 		ProcessIndicators:      processIndicators,
@@ -2158,6 +2146,11 @@ func windowsFallbackServiceState(enabled *bool) string {
 	return "Stopped"
 }
 
+var (
+	modKernel32Benchmark      = windows.NewLazySystemDLL("kernel32.dll")
+	procGetSystemDEPPolicyBmk = modKernel32Benchmark.NewProc("GetSystemDEPPolicy")
+)
+
 var windowsTemplateInfo = windowsTemplateMetadata{
 	Product:         "BVS",
 	TemplateName:    "Windows 配置规范_S1A1G1",
@@ -2218,4 +2211,12 @@ func parseUint32FromString(value string) uint32 {
 	}
 	n, _ := strconv.ParseUint(trimmed, 10, 32)
 	return uint32(n)
+}
+
+func collectWindowsDEPPolicy() (int64, error) {
+	r0, _, callErr := procGetSystemDEPPolicyBmk.Call()
+	if callErr != nil && callErr != windows.ERROR_SUCCESS {
+		return -1, callErr
+	}
+	return int64(r0), nil
 }
