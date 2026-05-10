@@ -5,19 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"edrsystem/internal/sbom/config"
+	"edrsystem/internal/sbom/imagebackend"
 	sbominventory "edrsystem/internal/sbom/inventory/sbom"
 	"edrsystem/internal/sbom/spec"
 )
 
 const (
-	FormatXSPDXJSON = "xspdx-json"
-	FormatSPDXJSON  = "spdx-json"
+	FormatXSPDXJSON     = "xspdx-json"
+	FormatSPDXJSON      = "spdx-json"
+	TargetTypeAuto      = "auto"
+	TargetTypeImage     = "image"
+	TargetTypeArchive   = "archive"
+	TargetTypeOCILayout = "oci-layout"
 )
 
 var supportedFormats = map[string]struct{}{
@@ -25,9 +28,18 @@ var supportedFormats = map[string]struct{}{
 	FormatSPDXJSON:  {},
 }
 
+var supportedTargetTypes = map[string]struct{}{
+	TargetTypeAuto:      {},
+	TargetTypeImage:     {},
+	TargetTypeArchive:   {},
+	TargetTypeOCILayout: {},
+}
+
 type ScanOptions struct {
-	Path   string
-	Format string
+	Path        string
+	ImageTarget string
+	TargetType  string
+	Format      string
 }
 
 func IsSupportedFormat(value string) bool {
@@ -46,6 +58,17 @@ func NormalizeFormat(value string) (string, error) {
 	return trimmed, nil
 }
 
+func NormalizeTargetType(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return TargetTypeAuto, nil
+	}
+	if _, ok := supportedTargetTypes[trimmed]; !ok {
+		return "", fmt.Errorf("invalid argument: --target-type only supports auto|image|archive|oci-layout")
+	}
+	return trimmed, nil
+}
+
 func Scan(ctx context.Context, options ScanOptions) (any, error) {
 	_ = ctx
 
@@ -54,38 +77,36 @@ func Scan(ctx context.Context, options ScanOptions) (any, error) {
 		return nil, err
 	}
 
-	scanPath := strings.TrimSpace(options.Path)
-	if scanPath == "" {
-		cwd, cwdErr := os.Getwd()
-		if cwdErr != nil {
-			return nil, fmt.Errorf("resolve default scan path failed: %w", cwdErr)
-		}
-		scanPath = cwd
-	}
-	absPath, err := filepath.Abs(scanPath)
+	resolved, err := resolveScanRoot(options)
 	if err != nil {
-		return nil, fmt.Errorf("resolve scan path failed: %w", err)
+		return nil, err
+	}
+	if resolved.cleanup != nil {
+		defer resolved.cleanup()
 	}
 
 	cfg := &config.GenerateConfig{
 		SourceConfig: config.SourceConfig{
-			SrcPath:     absPath,
+			SrcPath:     resolved.rootPath,
 			Parallelism: config.DefaultParallelism,
 		},
 		PackageConfig: config.PackageConfig{
-			Path:        absPath,
+			Path:        resolved.rootPath,
 			Parallelism: config.DefaultParallelism,
 			Collectors:  "*",
 		},
 		ArtifactConfig: config.ArtifactConfig{
-			DistPath:    absPath,
+			DistPath:    resolved.rootPath,
 			Parallelism: config.DefaultParallelism,
 		},
 		AssemblyConfig: config.AssemblyConfig{
 			Format: format,
 		},
-		Path:         absPath,
+		Path:         resolved.rootPath,
 		NamespaceURI: defaultNamespaceURI(),
+	}
+	if resolved.mode != imagebackend.TargetModePath {
+		cfg.SkipPhases = sbominventory.SourcePhase
 	}
 
 	doc, err := sbominventory.GenerateSBOM(cfg)

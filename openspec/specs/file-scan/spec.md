@@ -217,3 +217,33 @@ The local collector walker MUST surface permission and metadata-read failures th
 - **THEN** callback is invoked twice with stage `collect_targets`
 - **AND** each callback includes the denied entry path and associated error
 
+### Requirement: File-scan default cache path SHALL follow executable directory
+The local file-scan runtime SHALL store its default SQLite cache database next to the executable as `<exe-dir>/scan-cache.db`. If the executable path cannot be resolved, the runtime MAY fall back to `./scan-cache.db`.
+
+#### Scenario: Default cache database is created next to executable
+- **WHEN** `filescan` initializes its default local cache store
+- **THEN** the runtime uses `<exe-dir>/scan-cache.db`
+
+#### Scenario: Default cache database falls back to current directory
+- **WHEN** the runtime cannot resolve the executable path
+- **THEN** the default cache database path falls back to `./scan-cache.db`
+
+### Requirement: File-scan cache reuse SHALL validate current file hash after metadata hit
+The local file-scan runtime SHALL NOT reuse a cached verdict solely because a cache row exists. After a cache candidate matches `file_path` and `last_modified`, the runtime SHALL recompute the current file `sha256` and SHALL reuse the cached verdict only when it matches cached `file_hash`.
+
+#### Scenario: Cache hit is reused only when sha256 still matches
+- **WHEN** a cache row matches both `file_path` and `last_modified`
+- **AND** the current file `sha256` equals cached `file_hash`
+- **THEN** the runtime reuses the cached verdict and skips downstream checks
+
+#### Scenario: Cache metadata hit falls through on hash mismatch
+- **WHEN** a cache row matches `file_path` and `last_modified`
+- **AND** the current file `sha256` differs from cached `file_hash`
+- **THEN** the runtime treats the cache entry as stale
+- **AND** downstream signature, reputation, and deep-scan flow remain eligible
+
+#### Scenario: Metadata match alone is not sufficient for cache reuse
+- **WHEN** a cache row matches `file_path` and `last_modified`
+- **AND** the current file `sha256` has not yet been verified against cached `file_hash`
+- **THEN** the runtime MUST NOT reuse the cached verdict yet
+- **AND** it MUST complete hash verification before deciding whether to short-circuit

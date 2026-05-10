@@ -51,9 +51,11 @@ func (e *DefaultFilterEngine) Filter(ctx context.Context, task ScanTask) (Filter
 			return FilterDecision{}, err
 		}
 		if ok && entry != nil {
-			result.ScanResult = scanResultPtr(entry.ScanResult)
-			result.LastScanTime = timePtr(entry.LastScanTime)
-			return FilterDecision{Result: result, Final: true}, nil
+			if cacheEntryMatchesFile(task.Path, entry) {
+				result.ScanResult = scanResultPtr(entry.ScanResult)
+				result.LastScanTime = timePtr(entry.LastScanTime)
+				return FilterDecision{Result: result, Final: true}, nil
+			}
 		}
 	}
 
@@ -116,6 +118,20 @@ func hashString(hashes *FileHashes, pick func(*FileHashes) *string) *string {
 		return nil
 	}
 	return pick(hashes)
+}
+
+func cacheEntryMatchesFile(path string, entry *CacheEntry) bool {
+	if entry == nil {
+		return false
+	}
+	if entry.Hash == "" {
+		return true
+	}
+	hashes, err := fileHashes(path)
+	if err != nil || hashes == nil || hashes.Sha256 == nil {
+		return false
+	}
+	return *hashes.Sha256 == entry.Hash
 }
 
 func nowPtr() *time.Time {

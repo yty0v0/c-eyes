@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"bufio"
@@ -152,10 +152,12 @@ type netscanParseResult struct {
 }
 
 type sbomParseResult struct {
-	ShowHelp bool
-	Path     string
-	Format   string
-	RiskArgs []string
+	ShowHelp    bool
+	Path        string
+	ImageTarget string
+	TargetType  string
+	Format      string
+	RiskArgs    []string
 }
 
 type benchmarkParseResult struct {
@@ -352,7 +354,11 @@ func runHostscanCLI(args []string, global globalCLIOptions) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if err := emitOutput(results, global.OutputPath); err != nil {
+		payload := riskanalysis.SummaryResult{
+			Summary: riskanalysis.BuildSummary(results),
+			Results: results,
+		}
+		if err := emitOutput(payload, global.OutputPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -462,7 +468,11 @@ func runFilescanCLI(args []string, global globalCLIOptions) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if err := emitOutput(results, global.OutputPath); err != nil {
+		payload := riskanalysis.SummaryResult{
+			Summary: riskanalysis.BuildSummary(results),
+			Results: results,
+		}
+		if err := emitOutput(payload, global.OutputPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -597,8 +607,10 @@ func runSBOMCLI(args []string, global globalCLIOptions) int {
 	}
 
 	result, err := sbom.Scan(context.Background(), sbom.ScanOptions{
-		Path:   parsed.Path,
-		Format: parsed.Format,
+		Path:        parsed.Path,
+		ImageTarget: parsed.ImageTarget,
+		TargetType:  parsed.TargetType,
+		Format:      parsed.Format,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -778,6 +790,16 @@ func parseSBOMArgs(args []string) (sbomParseResult, error) {
 	scanPath := ""
 	fs.StringVar(&scanPath, "p", "", "SBOM scan path")
 	fs.StringVar(&scanPath, "path", "", "SBOM scan path")
+	imageTarget := ""
+	fs.StringVar(&imageTarget, "image-target", "", "SBOM scan image target")
+	legacyImage := ""
+	fs.StringVar(&legacyImage, "image", "", "SBOM scan image reference")
+	legacyImageArchive := ""
+	fs.StringVar(&legacyImageArchive, "image-archive", "", "SBOM scan image archive path")
+	legacyOCILayout := ""
+	fs.StringVar(&legacyOCILayout, "oci-layout", "", "SBOM scan OCI layout path")
+	targetType := ""
+	fs.StringVar(&targetType, "target-type", "", "SBOM image target type: auto|image|archive|oci-layout")
 
 	format := sbom.FormatXSPDXJSON
 	fs.StringVar(&format, "format", sbom.FormatXSPDXJSON, "SBOM output format: xspdx-json|spdx-json")
@@ -794,8 +816,69 @@ func parseSBOMArgs(args []string) (sbomParseResult, error) {
 		return result, err
 	}
 	result.Path = strings.TrimSpace(scanPath)
-	if result.Path == "" {
-		return result, fmt.Errorf("invalid argument: -p/--path is required for sbom")
+	result.ImageTarget = strings.TrimSpace(imageTarget)
+	legacyImage = strings.TrimSpace(legacyImage)
+	legacyImageArchive = strings.TrimSpace(legacyImageArchive)
+	legacyOCILayout = strings.TrimSpace(legacyOCILayout)
+	normalizedTargetType, err := sbom.NormalizeTargetType(targetType)
+	if err != nil {
+		return result, err
+	}
+	result.TargetType = normalizedTargetType
+
+	imageSelectors := 0
+	if result.ImageTarget != "" {
+		imageSelectors++
+	}
+	if legacyImage != "" {
+		imageSelectors++
+	}
+	if legacyImageArchive != "" {
+		imageSelectors++
+	}
+	if legacyOCILayout != "" {
+		imageSelectors++
+	}
+	if imageSelectors > 1 {
+		return result, fmt.Errorf("invalid argument: sbom image target options are mutually exclusive")
+	}
+	switch {
+	case result.ImageTarget != "":
+		// already normalized through the unified option
+	case legacyImage != "":
+		result.ImageTarget = legacyImage
+		if result.TargetType == sbom.TargetTypeAuto {
+			result.TargetType = sbom.TargetTypeImage
+		} else if result.TargetType != sbom.TargetTypeImage {
+			return result, fmt.Errorf("invalid argument: --target-type conflicts with --image")
+		}
+	case legacyImageArchive != "":
+		result.ImageTarget = legacyImageArchive
+		if result.TargetType == sbom.TargetTypeAuto {
+			result.TargetType = sbom.TargetTypeArchive
+		} else if result.TargetType != sbom.TargetTypeArchive {
+			return result, fmt.Errorf("invalid argument: --target-type conflicts with --image-archive")
+		}
+	case legacyOCILayout != "":
+		result.ImageTarget = legacyOCILayout
+		if result.TargetType == sbom.TargetTypeAuto {
+			result.TargetType = sbom.TargetTypeOCILayout
+		} else if result.TargetType != sbom.TargetTypeOCILayout {
+			return result, fmt.Errorf("invalid argument: --target-type conflicts with --oci-layout")
+		}
+	}
+
+	if result.Path != "" && result.ImageTarget != "" {
+		return result, fmt.Errorf("invalid argument: sbom target options are mutually exclusive")
+	}
+	if result.Path != "" && result.TargetType != sbom.TargetTypeAuto {
+		return result, fmt.Errorf("invalid argument: --target-type cannot be used with -p/--path")
+	}
+	if result.Path == "" && result.ImageTarget == "" {
+		if result.TargetType != sbom.TargetTypeAuto {
+			return result, fmt.Errorf("invalid argument: --target-type requires --image-target")
+		}
+		return result, fmt.Errorf("invalid argument: sbom requires exactly one target: -p/--path or --image-target")
 	}
 	result.Format = normalizedFormat
 	return result, nil
@@ -3217,21 +3300,30 @@ func printRiskProgressLine(progress *terminalProgress, line string) {
 	fmt.Fprintln(os.Stderr, line)
 }
 
-func printRiskStreamSummary(progress *terminalProgress, summary riskStreamSummary) {
-	if summary.total() == 0 {
+func printRiskStreamSummary(progress *terminalProgress, summary riskanalysis.Summary) {
+	if summary.Total == 0 {
 		return
 	}
 	printRiskProgressLine(progress, "")
 	printRiskProgressLine(progress, "Risk Summary:")
-	printRiskProgressLine(progress, fmt.Sprintf("Total risky files: %d", summary.total()))
-	if summary.high > 0 {
-		printRiskProgressLine(progress, fmt.Sprintf("HIGH: %d", summary.high))
+	printRiskProgressLine(progress, fmt.Sprintf("Total risky files: %d", summary.Total))
+	if summary.Critical > 0 {
+		printRiskProgressLine(progress, fmt.Sprintf("CRITICAL: %d", summary.Critical))
 	}
-	if summary.med > 0 {
-		printRiskProgressLine(progress, fmt.Sprintf("MEDIUM: %d", summary.med))
+	if summary.High > 0 {
+		printRiskProgressLine(progress, fmt.Sprintf("HIGH: %d", summary.High))
 	}
-	if summary.low > 0 {
-		printRiskProgressLine(progress, fmt.Sprintf("LOW: %d", summary.low))
+	if summary.Medium > 0 {
+		printRiskProgressLine(progress, fmt.Sprintf("MEDIUM: %d", summary.Medium))
+	}
+	if summary.Low > 0 {
+		printRiskProgressLine(progress, fmt.Sprintf("LOW: %d", summary.Low))
+	}
+	if summary.Pending > 0 {
+		printRiskProgressLine(progress, fmt.Sprintf("PENDING: %d", summary.Pending))
+	}
+	if summary.SuspiciousOffline > 0 {
+		printRiskProgressLine(progress, fmt.Sprintf("SUSPICIOUS_OFFLINE: %d", summary.SuspiciousOffline))
 	}
 }
 
@@ -3455,7 +3547,6 @@ func analyzeRiskResults(opts riskOptions, overrideRecords []riskanalysis.ScanRec
 		AnalysisMaxDuration:      opts.AnalysisMaxDuration,
 	}
 	colorEnabled := supportsANSIColorOutput(os.Stderr)
-	var streamed riskStreamSummary
 	progressLimiter := newRiskProgressUpdateLimiter(progress)
 	if progress != nil {
 		analyzer.OnDiagnostic = func(message string) {
@@ -3472,7 +3563,6 @@ func analyzeRiskResults(opts riskOptions, overrideRecords []riskanalysis.ScanRec
 			if band == riskSeverityNone {
 				return
 			}
-			streamed.add(band)
 			progress.PrintLine(formatRiskStreamLine(result, band, colorEnabled))
 		}
 	}
@@ -3481,7 +3571,7 @@ func analyzeRiskResults(opts riskOptions, overrideRecords []riskanalysis.ScanRec
 	if analyzeErr != nil {
 		return nil, analyzeErr
 	}
-	printRiskStreamSummary(progress, streamed)
+	printRiskStreamSummary(progress, riskanalysis.BuildSummary(results))
 	return results, nil
 }
 
@@ -3621,6 +3711,22 @@ func emitOutputWithPrompt(payload any, outputPath string, writers outputWriteSet
 			}
 		}
 	case "xlsx":
+		if summaryPayload, ok := payload.(riskanalysis.SummaryResult); ok {
+			if err := writeRiskExcel(resolvedOutputPath, summaryPayload); err != nil {
+				writeErr = err
+				break
+			}
+			writtenPaths = []string{resolvedOutputPath}
+			break
+		}
+		if summaryPayload, ok := payload.(*riskanalysis.SummaryResult); ok {
+			if err := writeRiskExcel(resolvedOutputPath, *summaryPayload); err != nil {
+				writeErr = err
+				break
+			}
+			writtenPaths = []string{resolvedOutputPath}
+			break
+		}
 		rows, err := payloadToRows(payload)
 		if err != nil {
 			return err
@@ -3901,6 +4007,18 @@ func payloadToRows(payload any) ([]map[string]any, error) {
 	}
 
 	if rv.Kind() == reflect.Struct {
+		if _, ok := payload.(riskanalysis.SummaryResult); ok {
+			field := rv.FieldByName("Results")
+			if field.IsValid() && field.Kind() == reflect.Slice {
+				return anySliceToMapRows(field.Interface())
+			}
+		}
+		if _, ok := payload.(*riskanalysis.SummaryResult); ok {
+			field := rv.FieldByName("Results")
+			if field.IsValid() && field.Kind() == reflect.Slice {
+				return anySliceToMapRows(field.Interface())
+			}
+		}
 		field := rv.FieldByName("Rows")
 		if field.IsValid() && field.Kind() == reflect.Slice {
 			return anySliceToMapRows(field.Interface())
@@ -3924,10 +4042,10 @@ func benchmarkRowsForDisplay(rows []benchmark.Row) []map[string]any {
 		display := map[string]any{
 			"检查项编号": benchmarkDisplayCheckID(row.Template, row.CheckID),
 			"检查项名称": row.CheckName,
-			"分类":     strings.TrimSpace(row.Category),
-			"基线要求":   row.Expected,
-			"实际结果":   row.Actual,
-			"判定结果":   benchmarkDisplayStatus(row.Status, row.StatusReason),
+			"分类":    strings.TrimSpace(row.Category),
+			"基线要求":  row.Expected,
+			"实际结果":  row.Actual,
+			"判定结果":  benchmarkDisplayStatus(row.Status, row.StatusReason),
 		}
 		if severity := benchmarkDisplaySeverityForRow(row.Status, row.StatusReason, row.Severity); severity != "" {
 			display["风险等级"] = severity
@@ -4041,7 +4159,6 @@ func writeCSVFile(path string, rows []map[string]any) error {
 	return writeCSVFileInternal(path, rows, false)
 }
 
-
 func writeCSVFileWithBOM(path string, rows []map[string]any) error {
 	return writeCSVFileInternal(path, rows, true)
 }
@@ -4121,8 +4238,8 @@ func writeXLSXFile(path string, rows []map[string]any) error {
 }
 
 type benchmarkSummaryMetricRow struct {
-    Metric  string
-    Display string
+	Metric  string
+	Display string
 }
 
 func printBenchmarkSummary(progress *terminalProgress, result benchmark.ScanResult) {
@@ -4144,126 +4261,126 @@ func printBenchmarkSummary(progress *terminalProgress, result benchmark.ScanResu
 }
 
 func extractBenchmarkSummary(payload any) (benchmark.Summary, bool) {
-    switch typed := payload.(type) {
-    case benchmark.ScanResult:
-        return typed.Summary, true
-    case *benchmark.ScanResult:
-        if typed == nil {
-            return benchmark.Summary{}, false
-        }
-        return typed.Summary, true
-    default:
-        return benchmark.Summary{}, false
-    }
+	switch typed := payload.(type) {
+	case benchmark.ScanResult:
+		return typed.Summary, true
+	case *benchmark.ScanResult:
+		if typed == nil {
+			return benchmark.Summary{}, false
+		}
+		return typed.Summary, true
+	default:
+		return benchmark.Summary{}, false
+	}
 }
 
 func buildBenchmarkSummaryMetricRows(summary benchmark.Summary, localized bool) []benchmarkSummaryMetricRow {
-    metric := func(english, chinese string) string {
-        if localized {
-            return chinese
-        }
-        return english
-    }
-    rate := func(value float64) string {
-        return fmt.Sprintf("%.2f%%", value*100)
-    }
-    return []benchmarkSummaryMetricRow{
-        {Metric: metric("total", "总检查项数"), Display: strconv.Itoa(summary.Total)},
-        {Metric: metric("pass", "符合项"), Display: strconv.Itoa(summary.Pass)},
-        {Metric: metric("fail", "不符合项"), Display: strconv.Itoa(summary.Fail)},
-        {Metric: metric("informational", "信息项"), Display: strconv.Itoa(summary.Informational)},
-        {Metric: metric("pending", "待确认项"), Display: strconv.Itoa(summary.Pending)},
-        {Metric: metric("evaluated", "可判定项"), Display: strconv.Itoa(summary.Evaluated)},
-        {Metric: metric("compliance_rate", "合规率"), Display: rate(summary.ComplianceRate)},
-        {Metric: metric("informational_rate", "信息项占比"), Display: rate(summary.InformationalRate)},
-        {Metric: metric("pending_rate", "待确认项占比"), Display: rate(summary.PendingRate)},
-    }
+	metric := func(english, chinese string) string {
+		if localized {
+			return chinese
+		}
+		return english
+	}
+	rate := func(value float64) string {
+		return fmt.Sprintf("%.2f%%", value*100)
+	}
+	return []benchmarkSummaryMetricRow{
+		{Metric: metric("total", "总检查项数"), Display: strconv.Itoa(summary.Total)},
+		{Metric: metric("pass", "符合项"), Display: strconv.Itoa(summary.Pass)},
+		{Metric: metric("fail", "不符合项"), Display: strconv.Itoa(summary.Fail)},
+		{Metric: metric("informational", "信息项"), Display: strconv.Itoa(summary.Informational)},
+		{Metric: metric("pending", "待确认项"), Display: strconv.Itoa(summary.Pending)},
+		{Metric: metric("evaluated", "可判定项"), Display: strconv.Itoa(summary.Evaluated)},
+		{Metric: metric("compliance_rate", "合规率"), Display: rate(summary.ComplianceRate)},
+		{Metric: metric("informational_rate", "信息项占比"), Display: rate(summary.InformationalRate)},
+		{Metric: metric("pending_rate", "待确认项占比"), Display: rate(summary.PendingRate)},
+	}
 }
 
 func writeBenchmarkSummaryCSVSidecar(csvPath string, payload any) (string, error) {
-    summary, ok := extractBenchmarkSummary(payload)
-    if !ok {
-        return "", nil
-    }
-    summaryPath := strings.TrimSuffix(csvPath, filepath.Ext(csvPath)) + ".summary.csv"
-    file, err := os.Create(summaryPath)
-    if err != nil {
-        return "", err
-    }
-    defer func() { _ = file.Close() }()
-    if shouldWriteUTF8BOMForBenchmarkFiles(payload) {
-        if _, err := file.Write(utf8BOM); err != nil {
-            return "", err
-        }
-    }
-    writer := csv.NewWriter(file)
-    for _, row := range buildBenchmarkSummaryMetricRows(summary, true) {
-        if err := writer.Write([]string{row.Metric, row.Display}); err != nil {
-            return "", err
-        }
-    }
-    writer.Flush()
-    if err := writer.Error(); err != nil {
-        return "", err
-    }
-    return summaryPath, nil
+	summary, ok := extractBenchmarkSummary(payload)
+	if !ok {
+		return "", nil
+	}
+	summaryPath := strings.TrimSuffix(csvPath, filepath.Ext(csvPath)) + ".summary.csv"
+	file, err := os.Create(summaryPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	if shouldWriteUTF8BOMForBenchmarkFiles(payload) {
+		if _, err := file.Write(utf8BOM); err != nil {
+			return "", err
+		}
+	}
+	writer := csv.NewWriter(file)
+	for _, row := range buildBenchmarkSummaryMetricRows(summary, true) {
+		if err := writer.Write([]string{row.Metric, row.Display}); err != nil {
+			return "", err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return summaryPath, nil
 }
 
 func appendBenchmarkSummarySheetToXLSXFiles(paths []string, payload any) error {
-    summary, ok := extractBenchmarkSummary(payload)
-    if !ok {
-        return nil
-    }
-    for _, path := range paths {
-        if err := appendBenchmarkSummarySheet(path, summary); err != nil {
-            return err
-        }
-    }
-    return nil
+	summary, ok := extractBenchmarkSummary(payload)
+	if !ok {
+		return nil
+	}
+	for _, path := range paths {
+		if err := appendBenchmarkSummarySheet(path, summary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func appendBenchmarkSummarySheet(path string, summary benchmark.Summary) error {
-    file, err := excelize.OpenFile(path)
-    if err != nil {
-        return err
-    }
-    defer func() { _ = file.Close() }()
-    const summarySheet = "summary"
-    const resultsSheet = "results"
-    for _, name := range file.GetSheetList() {
-        if name == summarySheet {
-            if err := file.DeleteSheet(summarySheet); err != nil {
-                return err
-            }
-            break
-        }
-    }
-    sheetIdx, err := file.NewSheet(summarySheet)
-    if err != nil {
-        return err
-    }
-    rows := buildBenchmarkSummaryMetricRows(summary, true)
-    for i, row := range rows {
-        r := i + 1
-        if err := file.SetCellValue(summarySheet, fmt.Sprintf("A%d", r), row.Metric); err != nil {
-            return err
-        }
-        if err := file.SetCellValue(summarySheet, fmt.Sprintf("B%d", r), row.Display); err != nil {
-            return err
-        }
-    }
-    if err := file.SetColWidth(summarySheet, "A", "A", 24); err != nil {
-        return err
-    }
-    if err := file.SetColWidth(summarySheet, "B", "B", 16); err != nil {
-        return err
-    }
-    activeSheetIdx := sheetIdx
-    if resultsIdx, err := file.GetSheetIndex(resultsSheet); err == nil && resultsIdx >= 0 {
-        activeSheetIdx = resultsIdx
-    }
-    file.SetActiveSheet(activeSheetIdx)
-    return file.Save()
+	file, err := excelize.OpenFile(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	const summarySheet = "summary"
+	const resultsSheet = "results"
+	for _, name := range file.GetSheetList() {
+		if name == summarySheet {
+			if err := file.DeleteSheet(summarySheet); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	sheetIdx, err := file.NewSheet(summarySheet)
+	if err != nil {
+		return err
+	}
+	rows := buildBenchmarkSummaryMetricRows(summary, true)
+	for i, row := range rows {
+		r := i + 1
+		if err := file.SetCellValue(summarySheet, fmt.Sprintf("A%d", r), row.Metric); err != nil {
+			return err
+		}
+		if err := file.SetCellValue(summarySheet, fmt.Sprintf("B%d", r), row.Display); err != nil {
+			return err
+		}
+	}
+	if err := file.SetColWidth(summarySheet, "A", "A", 24); err != nil {
+		return err
+	}
+	if err := file.SetColWidth(summarySheet, "B", "B", 16); err != nil {
+		return err
+	}
+	activeSheetIdx := sheetIdx
+	if resultsIdx, err := file.GetSheetIndex(resultsSheet); err == nil && resultsIdx >= 0 {
+		activeSheetIdx = resultsIdx
+	}
+	file.SetActiveSheet(activeSheetIdx)
+	return file.Save()
 }
 func validateXLSXShape(dataRows int, columns int) error {
 	if columns > xlsxMaxColumns {
@@ -4310,9 +4427,32 @@ func orderDisplayHeaders(headers []string) []string {
 		"风险等级",
 		"整改建议",
 	}
+	generalOrder := []string{
+		"displayIp",
+		"hostname",
+		"name",
+		"moduleName",
+		"path",
+		"execPath",
+		"target_path",
+		"version",
+		"status",
+		"proto",
+		"port",
+		"bindIp",
+		"pid",
+		"uname",
+		"gname",
+	}
 	orderIndex := make(map[string]int, len(benchmarkOrder))
 	for i, key := range benchmarkOrder {
 		orderIndex[key] = i
+	}
+	base := len(benchmarkOrder)
+	for i, key := range generalOrder {
+		if _, exists := orderIndex[key]; !exists {
+			orderIndex[key] = base + i
+		}
 	}
 	sort.Slice(headers, func(i, j int) bool {
 		li, lok := orderIndex[headers[i]]
@@ -5027,12 +5167,16 @@ func sbomUsage() {
 	fmt.Fprintln(os.Stderr, "    c-eyes sbom [command options]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
-	fmt.Fprintln(os.Stderr, "    -p, --path <path>               SBOM scan root path (required)")
-	fmt.Fprintln(os.Stderr, "    --format <name>                  SBOM output format: xspdx-json|spdx-json (default: xspdx-json)")
+	fmt.Fprintln(os.Stderr, "    -p, --path <path>               SBOM scan root path")
+	fmt.Fprintln(os.Stderr, "    --image-target <value>          SBOM scan image target")
+	fmt.Fprintln(os.Stderr, "    --target-type <type>            SBOM image target type: auto|image|archive|oci-layout (default: auto)")
+	fmt.Fprintln(os.Stderr, "    --format <name>                 SBOM output format: xspdx-json|spdx-json (default: xspdx-json)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "NOTE:")
 	fmt.Fprintln(os.Stderr, "    sbom is collection-only and does not support -r/--riskanalyze or risk options.")
-	fmt.Fprintln(os.Stderr, "    sbom requires -p/--path to define explicit scan scope.")
+	fmt.Fprintln(os.Stderr, "    sbom requires exactly one target: -p/--path or --image-target.")
+	fmt.Fprintln(os.Stderr, "    -p/--path and --image-target are mutually exclusive.")
+	fmt.Fprintln(os.Stderr, "    --target-type can only be used with --image-target.")
 	fmt.Fprintln(os.Stderr, "    sbom uses global -o/--output for file path; only .json output suffix is supported.")
 	fmt.Fprintln(os.Stderr, "    without -o, sbom auto-generates result*.json in current directory.")
 }

@@ -155,11 +155,11 @@ func TestDeterministicAssetIDStability(t *testing.T) {
 	t.Parallel()
 
 	id1 := deterministicAssetID("192.168.1.10", "AA:BB:CC:11:22:33")
-	id2 := deterministicAssetID("192.168.1.10", "AA:BB:CC:11:22:33")
+	id2 := deterministicAssetID("192.168.1.20", "AA:BB:CC:11:22:33")
 	id3 := deterministicAssetID("192.168.1.10", "")
 
 	if id1 != id2 {
-		t.Fatalf("expected stable IDs, got %s vs %s", id1, id2)
+		t.Fatalf("expected mac-based IDs to stay stable across IP changes, got %s vs %s", id1, id2)
 	}
 	if id1 == id3 {
 		t.Fatalf("expected mac-aware ID to differ from ip-only ID")
@@ -203,6 +203,98 @@ func TestAssetStoreFirstSeenLastSeen(t *testing.T) {
 	}
 	if lastSeen2 != secondNow {
 		t.Fatalf("expected lastSeen updated, got %d", lastSeen2)
+	}
+}
+
+func TestAssetStoreUpgradesRecentIPOnlyIdentityToMACIdentity(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "netscan.db")
+	store, err := openAssetStore(path)
+	if err != nil {
+		t.Fatalf("openAssetStore error: %v", err)
+	}
+	defer func() { _ = store.close() }()
+
+	weakRow := AssetRow{
+		AssetID:     deterministicAssetID("192.168.1.10", ""),
+		IPAddress:   "192.168.1.10",
+		OSFamily:    "unknown",
+		DeviceType:  "pc",
+		AssetStatus: "unmanaged",
+	}
+	firstNow := time.Now().UnixMilli()
+	firstSeen, lastSeen, err := store.upsert(context.Background(), weakRow, firstNow)
+	if err != nil {
+		t.Fatalf("weak upsert error: %v", err)
+	}
+	if firstSeen != firstNow || lastSeen != firstNow {
+		t.Fatalf("unexpected weak first/last timestamps: %d/%d", firstSeen, lastSeen)
+	}
+
+	strongRow := AssetRow{
+		AssetID:     deterministicAssetID("192.168.1.10", "AA:BB:CC:11:22:33"),
+		IPAddress:   "192.168.1.10",
+		MACAddress:  optionalString("AA:BB:CC:11:22:33"),
+		OSFamily:    "unknown",
+		DeviceType:  "pc",
+		AssetStatus: "managed",
+	}
+	secondNow := firstNow + 5000
+	firstSeen2, lastSeen2, err := store.upsert(context.Background(), strongRow, secondNow)
+	if err != nil {
+		t.Fatalf("strong upsert error: %v", err)
+	}
+	if firstSeen2 != firstNow {
+		t.Fatalf("expected upgraded firstSeen preserved, got %d", firstSeen2)
+	}
+	if lastSeen2 != secondNow {
+		t.Fatalf("expected upgraded lastSeen updated, got %d", lastSeen2)
+	}
+}
+
+func TestAssetStoreDoesNotUpgradeWeakIdentityWhenEvidenceConflicts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "netscan.db")
+	store, err := openAssetStore(path)
+	if err != nil {
+		t.Fatalf("openAssetStore error: %v", err)
+	}
+	defer func() { _ = store.close() }()
+
+	weakRow := AssetRow{
+		AssetID:     deterministicAssetID("192.168.1.10", ""),
+		IPAddress:   "192.168.1.10",
+		Hostname:    optionalString("old-host"),
+		OSFamily:    "windows",
+		DeviceType:  "pc",
+		AssetStatus: "unmanaged",
+	}
+	firstNow := time.Now().UnixMilli()
+	if _, _, err := store.upsert(context.Background(), weakRow, firstNow); err != nil {
+		t.Fatalf("weak upsert error: %v", err)
+	}
+
+	strongRow := AssetRow{
+		AssetID:     deterministicAssetID("192.168.1.10", "AA:BB:CC:11:22:33"),
+		IPAddress:   "192.168.1.10",
+		MACAddress:  optionalString("AA:BB:CC:11:22:33"),
+		Hostname:    optionalString("new-host"),
+		OSFamily:    "linux",
+		DeviceType:  "pc",
+		AssetStatus: "managed",
+	}
+	secondNow := firstNow + 5000
+	firstSeen2, lastSeen2, err := store.upsert(context.Background(), strongRow, secondNow)
+	if err != nil {
+		t.Fatalf("strong upsert error: %v", err)
+	}
+	if firstSeen2 != secondNow {
+		t.Fatalf("expected conflicting weak identity not reused, got firstSeen=%d want %d", firstSeen2, secondNow)
+	}
+	if lastSeen2 != secondNow {
+		t.Fatalf("expected fresh lastSeen updated, got %d", lastSeen2)
 	}
 }
 

@@ -187,9 +187,9 @@ func normalizeMAC(raw string) (string, bool) {
 }
 
 func deterministicAssetID(ip, mac string) string {
-	base := ip
+	base := "ip:" + strings.TrimSpace(ip)
 	if strings.TrimSpace(mac) != "" {
-		base = ip + "|" + mac
+		base = "mac:" + strings.TrimSpace(mac)
 	}
 	sum := sha1.Sum([]byte(base))
 	return hex.EncodeToString(sum[:])

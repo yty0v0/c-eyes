@@ -105,8 +105,8 @@ CREATE TABLE IF NOT EXISTS scan_cache (
 }
 
 func DefaultCachePath() string {
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".c-eyes", "scan-cache.db")
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		return filepath.Join(filepath.Dir(exe), "scan-cache.db")
 	}
 	return "scan-cache.db"
 }

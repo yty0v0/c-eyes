@@ -53,18 +53,26 @@ func (c *countingReputation) Lookup(ctx context.Context, req ReputationRequest) 
 func TestFilter_CacheHitShortCircuit(t *testing.T) {
 	tmp := t.TempDir()
 	file := tmp + "/sample.txt"
-	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+	content := []byte("data")
+	if err := os.WriteFile(file, content, 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	meta, err := fileMeta(file)
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
+	hashes, err := fileHashes(file)
+	if err != nil {
+		t.Fatalf("hash file: %v", err)
+	}
+	if hashes == nil || hashes.Sha256 == nil {
+		t.Fatalf("expected sha256")
+	}
 
 	cache := &memCache{
 		entry: &CacheEntry{
 			Path:         file,
-			Hash:         "hash",
+			Hash:         *hashes.Sha256,
 			LastModified: meta.ModifiedTime,
 			ScanResult:   ScanResultSafe,
 			LastScanTime: time.Now().UTC(),
@@ -88,6 +96,47 @@ func TestFilter_CacheHitShortCircuit(t *testing.T) {
 	}
 	if signature.calls != 0 || reputation.calls != 0 {
 		t.Fatalf("expected cache short-circuit, got signature=%d reputation=%d", signature.calls, reputation.calls)
+	}
+}
+
+func TestFilter_CacheHashMismatchFallsThrough(t *testing.T) {
+	tmp := t.TempDir()
+	file := tmp + "/sample.txt"
+	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	meta, err := fileMeta(file)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+
+	cache := &memCache{
+		entry: &CacheEntry{
+			Path:         file,
+			Hash:         "mismatch",
+			LastModified: meta.ModifiedTime,
+			ScanResult:   ScanResultSafe,
+			LastScanTime: time.Now().UTC(),
+		},
+	}
+	signature := &countingSignature{}
+	reputation := &countingReputation{verdict: ReputationSafe}
+
+	engine := &DefaultFilterEngine{
+		Cache:      cache,
+		Signature:  signature,
+		Reputation: reputation,
+	}
+
+	decision, err := engine.Filter(context.Background(), ScanTask{Path: file, Source: SourcePath, Mode: ScanModePath})
+	if err != nil {
+		t.Fatalf("filter error: %v", err)
+	}
+	if !decision.Final {
+		t.Fatalf("expected final decision")
+	}
+	if reputation.calls != 1 {
+		t.Fatalf("expected reputation lookup after cache hash mismatch, got %d", reputation.calls)
 	}
 }
 

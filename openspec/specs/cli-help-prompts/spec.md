@@ -76,15 +76,17 @@ The system SHALL provide English help for `c-eyes sbom` with structured sections
 #### Scenario: SBOM subcommand help uses standard sections
 - **WHEN** the user executes `c-eyes sbom -h`
 - **THEN** help output includes `NAME`, `USAGE`, and `OPTIONS`
-- **AND** options include required `-p/--path` and `--format` with values `xspdx-json|spdx-json`
+- **AND** options include target selectors `-p/--path`, `--image-target`, optional `--target-type auto|image|archive|oci-layout`, and `--format` with values `xspdx-json|spdx-json`
 
 #### Scenario: SBOM help states collection-only behavior
 - **WHEN** the user executes `c-eyes sbom -h`
 - **THEN** help text states SBOM is collection-only and does not support `-r/--riskanalyze`
 
-#### Scenario: SBOM help states required path behavior
+#### Scenario: SBOM help states target exclusivity behavior
 - **WHEN** the user executes `c-eyes sbom -h`
-- **THEN** help text states `-p/--path` is required to define scan scope
+- **THEN** help text states exactly one target selector must be provided
+- **AND** help text explains that `-p/--path` and `--image-target` are mutually exclusive
+- **AND** help text states that `--target-type` can only be used with `--image-target`
 
 ### Requirement: Root help SHALL include benchmark command entry
 Root help output SHALL list `benchmark` as a first-class command in the `COMMANDS` section.

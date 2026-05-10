@@ -10,29 +10,29 @@ import (
 )
 
 var riskHeaders = []string{
+	"target_path",
+	"risk_assessment.risk_level",
+	"risk_assessment.risk_score",
+	"risk_assessment.analysis_mode",
+	"target_type",
 	"scan_id",
 	"timestamp",
-	"target_type",
-	"target_path",
-	"pid",
-	"file_size",
+	"local_analysis.yara_results",
+	"cloud_analysis.threat_labels",
 	"hashes.sha256",
 	"hashes.md5",
 	"hashes.sha1",
-	"risk_assessment.analysis_mode",
-	"risk_assessment.risk_score",
-	"risk_assessment.risk_level",
+	"file_size",
+	"pid",
 	"local_analysis.local_matched",
 	"local_analysis.local_fallback",
 	"local_analysis.local_fallback_reason",
-	"local_analysis.yara_results",
 	"cloud_analysis.cloud_queried",
 	"cloud_analysis.cloud_provider",
 	"cloud_analysis.cloud_providers",
 	"cloud_analysis.malicious_votes",
 	"cloud_analysis.total_engines",
 	"cloud_analysis.detection_ratio",
-	"cloud_analysis.threat_labels",
 	"cloud_analysis.cloud_link",
 	"cloud_analysis.max_provider_score",
 	"cloud_analysis.provider_score_card",
@@ -53,7 +53,7 @@ var riskHeaders = []string{
 	"whitelist_analysis.expires_at",
 }
 
-func writeRiskExcel(path string, results []riskanalysis.AnalysisResult) error {
+func writeRiskExcel(path string, payload riskanalysis.SummaryResult) error {
 	if path == "" {
 		return fmt.Errorf("excel 输出路径不能为空")
 	}
@@ -69,7 +69,7 @@ func writeRiskExcel(path string, results []riskanalysis.AnalysisResult) error {
 		_ = file.SetCellValue(sheet, cell, header)
 	}
 
-	for r, result := range results {
+	for r, result := range payload.Results {
 		row := r + 2
 		values := riskExcelRow(result)
 		for c, value := range values {
@@ -78,7 +78,37 @@ func writeRiskExcel(path string, results []riskanalysis.AnalysisResult) error {
 		}
 	}
 
+	appendRiskSummarySheet(file, payload.Summary)
+
 	return file.SaveAs(path)
+}
+
+func appendRiskSummarySheet(file *excelize.File, summary riskanalysis.Summary) {
+	const summarySheet = "summary"
+	_, _ = file.NewSheet(summarySheet)
+
+	rows := []struct {
+		Label string
+		Value int
+	}{
+		{Label: "总计", Value: summary.Total},
+		{Label: "高危", Value: summary.Critical},
+		{Label: "高风险", Value: summary.High},
+		{Label: "中风险", Value: summary.Medium},
+		{Label: "低风险", Value: summary.Low},
+		{Label: "分析中", Value: summary.Pending},
+		{Label: "可疑-需本地核实", Value: summary.SuspiciousOffline},
+	}
+
+	rowIndex := 1
+	for _, row := range rows {
+		if row.Label != "总计" && row.Value == 0 {
+			continue
+		}
+		_ = file.SetCellValue(summarySheet, fmt.Sprintf("A%d", rowIndex), row.Label)
+		_ = file.SetCellValue(summarySheet, fmt.Sprintf("B%d", rowIndex), row.Value)
+		rowIndex++
+	}
 }
 
 func riskExcelRow(result riskanalysis.AnalysisResult) []any {
@@ -181,29 +211,29 @@ func riskExcelRow(result riskanalysis.AnalysisResult) []any {
 	}
 
 	return []any{
+		result.TargetPath,
+		result.RiskAssessment.RiskLevel,
+		float64Val(score),
+		string(result.RiskAssessment.AnalysisMode),
+		result.TargetType,
 		result.ScanID,
 		timeVal(&result.Timestamp),
-		result.TargetType,
-		result.TargetPath,
-		intVal(pid),
-		int64Val(fileSize),
+		jsonCell(localResults),
+		jsonCell(labels),
 		result.Hashes.Sha256,
 		result.Hashes.Md5,
 		result.Hashes.Sha1,
-		string(result.RiskAssessment.AnalysisMode),
-		float64Val(score),
-		result.RiskAssessment.RiskLevel,
+		int64Val(fileSize),
+		intVal(pid),
 		boolVal(localMatched),
 		boolVal(localFallback),
 		stringVal(localFallbackReason),
-		jsonCell(localResults),
 		boolVal(cloudQueried),
 		stringVal(cloudProvider),
 		jsonCell(cloudProviders),
 		intVal(malicious),
 		intVal(totalEngines),
 		stringVal(detection),
-		jsonCell(labels),
 		stringVal(cloudLink),
 		float64Val(maxProviderScore),
 		jsonCell(providerScoreCard),

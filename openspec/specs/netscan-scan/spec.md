@@ -149,16 +149,27 @@ The CLI runtime SHALL render an initial netscan progress row before informationa
 - **AND** subsequent informational notices are printed below the progress row
 
 ### Requirement: Netscan SHALL persist deterministic asset identity and timeline locally
-The system SHALL maintain a local persistent asset store to keep stable `assetId` and cross-run `firstSeen/lastSeen`. `assetId` generation SHALL be deterministic: `sha1(normalized_ip + "|" + normalized_mac)` when MAC exists, otherwise `sha1(normalized_ip)`.
+The system SHALL maintain a local persistent asset store to keep stable `assetId` and cross-run `firstSeen/lastSeen`. `assetId` generation SHALL be deterministic with MAC-first identity semantics: when a normalized MAC exists, `assetId` SHALL be derived from MAC alone; otherwise the runtime MAY fall back to an IP-only weak identity.
 
 #### Scenario: Asset ID remains stable across runs
 - **WHEN** the same normalized asset keys are observed in later scans
 - **THEN** the returned `assetId` is identical across runs
 
+#### Scenario: MAC-based identity remains stable across IP changes
+- **WHEN** the same normalized MAC is observed in later scans with a different IP address
+- **THEN** the returned `assetId` remains identical across runs
+
 #### Scenario: firstSeen and lastSeen are updated correctly
 - **WHEN** an existing asset is rediscovered
 - **THEN** `firstSeen` remains unchanged
 - **AND** `lastSeen` is updated to the current scan time
+
+#### Scenario: IP-only weak identity can be upgraded to MAC identity when evidence agrees
+- **WHEN** a persisted asset was previously stored using an IP-only weak identity
+- **AND** a later scan observes the same IP with a normalized MAC
+- **AND** available identity evidence such as hostname, OS family, or device type does not conflict
+- **THEN** the runtime upgrades the persisted record to the MAC-based identity
+- **AND** `firstSeen` is preserved during the upgrade
 
 ### Requirement: Netscan managed-source reconciliation SHALL classify assets deterministically
 When `managedSource` is provided, the system SHALL load managed records from supported file formats and classify scanned assets with precedence `ip+mac` first, then `ip`, producing `managed/unmanaged` status deterministically.
@@ -237,3 +248,14 @@ When reachable-segment mode is enabled, the system SHALL report discovery and ve
 - **WHEN** an OS-specific route or connection collector is unavailable or permission-limited
 - **THEN** reachable-segment discovery continues with remaining available collectors
 - **AND** output warnings include explicit English diagnostics for the unavailable collector path
+
+### Requirement: Netscan default persistent store SHALL follow executable directory
+The netscan runtime SHALL store its default persistent asset database next to the executable as `<exe-dir>/netscan-assets.db`. If the executable path cannot be resolved, the runtime MAY fall back to `./netscan-assets.db`.
+
+#### Scenario: Default netscan asset database is created next to executable
+- **WHEN** `netscan` initializes its default persistent asset store
+- **THEN** the runtime uses `<exe-dir>/netscan-assets.db`
+
+#### Scenario: Default netscan asset database falls back to current directory
+- **WHEN** the runtime cannot resolve the executable path
+- **THEN** the default persistent asset database path falls back to `./netscan-assets.db`

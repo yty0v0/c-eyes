@@ -57,6 +57,8 @@ Web文件信息获取：`c-eyes filescan --all`
 
 软件物料清单采集：`c-eyes sbom -p <app-path>`
 
+镜像物料清单采集：`c-eyes sbom --image-target <value>`  ，支持镜像引用（如 `nginx:1.27`）、镜像归档文件（如 `D:\images\nginx.tar`）和 OCI layout 目录（如 `D:\images\nginx-oci`），
+
 ### 风险分析
 主机异常分析： `c-eyes hostscan --all -r`
 
@@ -193,12 +195,20 @@ Web文件信息获取：c-eyes filescan --all
 ### 物料清单采集(sbom)
 ```
 软件物料清单采集：c-eyes sbom -p <app-path>
+镜像物料清单采集：c-eyes sbom --image-target <value>
 参数：
     -p, --path <app-path>                指定扫描根路径（必填）
+    --image-target <value>               指定镜像采集目标
+    --target-type <type>                 指定镜像采集目标类型: auto|image|archive|oci-layout (默认: auto)
     --format <xspdx-json|spdx-json>      指定 SBOM 输出内容格式（默认：xspdx-json）
 说明：
-    必须通过-p/--path 指定扫描根路径
-    不指定 -o 时，自动按 result.json、result1.json、resultN.json 递增输出。
+    -p/--path 与 --image-target 互斥，二者必须且只能选择一种
+    --target-type 仅可与 --image-target 一起使用，不能与 -p/--path 同时使用
+    --image-target 在未显式指定 --target-type 时默认使用 auto 自动识别
+        image ：表示镜像引用（如 nginx:1.27），
+        archive ：表示本地镜像归档文件（如 D:\images\nginx.tar），
+        oci-layout ：表示本地 OCI Image Layout 目录（如 D:\images\nginx-oci）
+    不指定 -o 时，自动按 result.json、result1.json、resultN.json 递增输出
 ```
 
 ### 安全基线检查(benchmark)

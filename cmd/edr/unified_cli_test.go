@@ -1,9 +1,6 @@
-﻿package main
-
-
+package main
 
 import (
-
 	"bytes"
 
 	"encoding/json"
@@ -30,25 +27,17 @@ import (
 
 	"time"
 
-
-
 	"edrsystem/internal/benchmark"
+	"edrsystem/internal/sbom"
 
 	"edrsystem/internal/riskanalysis"
 
-
-
 	"github.com/xuri/excelize/v2"
-
 )
-
-
 
 func TestParseGlobalCLIOptions(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	opts, remaining, err := parseGlobalCLIOptions([]string{
 
@@ -61,7 +50,6 @@ func TestParseGlobalCLIOptions(t *testing.T) {
 		"--risk-mode", "local_only",
 
 		"-o", "result.xlsx",
-
 	})
 
 	if err != nil {
@@ -96,13 +84,9 @@ func TestParseGlobalCLIOptions(t *testing.T) {
 
 }
 
-
-
 func TestSanitizeModuleHelpTextRemovesLegacyOutputFlags(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	raw := strings.Join([]string{
 
@@ -127,10 +111,7 @@ func TestSanitizeModuleHelpTextRemovesLegacyOutputFlags(t *testing.T) {
 		"        Output format (json or excel) (default json)",
 
 		"",
-
 	}, "\n")
-
-
 
 	got := sanitizeModuleHelpText(raw)
 
@@ -154,13 +135,9 @@ func TestSanitizeModuleHelpTextRemovesLegacyOutputFlags(t *testing.T) {
 
 }
 
-
-
 func TestParseGlobalCLIOptionsOutputRequiresPath(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, _, err := parseGlobalCLIOptions([]string{
 
@@ -169,7 +146,6 @@ func TestParseGlobalCLIOptionsOutputRequiresPath(t *testing.T) {
 		"-o",
 
 		"-r",
-
 	})
 
 	if err == nil {
@@ -186,20 +162,15 @@ func TestParseGlobalCLIOptionsOutputRequiresPath(t *testing.T) {
 
 }
 
-
-
 func TestParseGlobalCLIOptionsOutputEqualsRequiresPath(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, _, err := parseGlobalCLIOptions([]string{
 
 		"hostscan",
 
 		"-o=",
-
 	})
 
 	if err == nil {
@@ -216,18 +187,13 @@ func TestParseGlobalCLIOptionsOutputEqualsRequiresPath(t *testing.T) {
 
 }
 
-
-
 func TestParseGlobalCLIOptionsDefaultAutoOutput(t *testing.T) {
 
 	t.Parallel()
 
-
-
 	opts, remaining, err := parseGlobalCLIOptions([]string{
 
 		"filescan",
-
 	})
 
 	if err != nil {
@@ -250,20 +216,15 @@ func TestParseGlobalCLIOptionsDefaultAutoOutput(t *testing.T) {
 
 }
 
-
-
 func TestParseGlobalCLIOptionsRiskModeRequiresRiskEnabled(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, _, err := parseGlobalCLIOptions([]string{
 
 		"filescan",
 
 		"--risk-mode", "local_only",
-
 	})
 
 	if err == nil {
@@ -280,13 +241,9 @@ func TestParseGlobalCLIOptionsRiskModeRequiresRiskEnabled(t *testing.T) {
 
 }
 
-
-
 func TestDetectOutputFormat(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	format, err := detectOutputFormat("out.csv")
 
@@ -302,8 +259,6 @@ func TestDetectOutputFormat(t *testing.T) {
 
 	}
 
-
-
 	if _, err := detectOutputFormat("out.txt"); err == nil {
 
 		t.Fatal("expected invalid suffix error")
@@ -312,13 +267,9 @@ func TestDetectOutputFormat(t *testing.T) {
 
 }
 
-
-
 func TestParseHostscanArgsMutualExclusion(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseHostscanArgs([]string{"--custom", "account", "--all"})
 
@@ -330,13 +281,9 @@ func TestParseHostscanArgsMutualExclusion(t *testing.T) {
 
 }
 
-
-
 func TestParseHostscanArgsRequiresAllOrCustom(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseHostscanArgs([]string{})
 
@@ -354,13 +301,9 @@ func TestParseHostscanArgsRequiresAllOrCustom(t *testing.T) {
 
 }
 
-
-
 func TestApplyHostscanRiskModuleSelectionExplicitAllToRiskModules(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseHostscanArgs([]string{"--all"})
 
@@ -396,13 +339,9 @@ func TestApplyHostscanRiskModuleSelectionExplicitAllToRiskModules(t *testing.T) 
 
 }
 
-
-
 func TestApplyHostscanRiskModuleSelectionAllowsRiskCustomModules(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseHostscanArgs([]string{"--custom", "process,kernel"})
 
@@ -428,13 +367,9 @@ func TestApplyHostscanRiskModuleSelectionAllowsRiskCustomModules(t *testing.T) {
 
 }
 
-
-
 func TestApplyHostscanRiskModuleSelectionAllFlagToRiskModules(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseHostscanArgs([]string{"--all"})
 
@@ -470,13 +405,9 @@ func TestApplyHostscanRiskModuleSelectionAllFlagToRiskModules(t *testing.T) {
 
 }
 
-
-
 func TestApplyHostscanRiskModuleSelectionRejectsNonRiskCustomModules(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseHostscanArgs([]string{"--custom", "account,process"})
 
@@ -502,13 +433,9 @@ func TestApplyHostscanRiskModuleSelectionRejectsNonRiskCustomModules(t *testing.
 
 }
 
-
-
 func TestParseHostscanArgsMultiIntersectionValidation(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseHostscanArgs([]string{"--custom", "account,process", "-hostname", "foo", "-uid", "1"})
 
@@ -520,13 +447,9 @@ func TestParseHostscanArgsMultiIntersectionValidation(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsConflict(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--custom", "site", "--scan-mode", "full"})
 
@@ -538,13 +461,9 @@ func TestParseFilescanArgsConflict(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsRequiresAllOrCustomForWebMode(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{})
 
@@ -562,13 +481,9 @@ func TestParseFilescanArgsRequiresAllOrCustomForWebMode(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsAllSelectsAllWebModules(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseFilescanArgs([]string{"--all"})
 
@@ -592,13 +507,9 @@ func TestParseFilescanArgsAllSelectsAllWebModules(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsSupportsSoftwareModule(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseFilescanArgs([]string{"--custom", "software"})
 
@@ -622,13 +533,9 @@ func TestParseFilescanArgsSupportsSoftwareModule(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsSoftwareMultiModuleRejectsNonIntersectionParam(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--custom", "site,software", "-hostname", "node", "-name", "nginx"})
 
@@ -646,13 +553,9 @@ func TestParseFilescanArgsSoftwareMultiModuleRejectsNonIntersectionParam(t *test
 
 }
 
-
-
 func TestParseFilescanArgsLocalPathRequired(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--scan-mode", "path"})
 
@@ -664,13 +567,9 @@ func TestParseFilescanArgsLocalPathRequired(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsLocalPathPositional(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseFilescanArgs([]string{"--scan-mode", "path", "/tmp/sample"})
 
@@ -700,13 +599,9 @@ func TestParseFilescanArgsLocalPathPositional(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsSmartRequiresScanMode(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--smart"})
 
@@ -724,13 +619,9 @@ func TestParseFilescanArgsSmartRequiresScanMode(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsSmartWithWebModeRejected(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--all", "--smart"})
 
@@ -748,13 +639,9 @@ func TestParseFilescanArgsSmartWithWebModeRejected(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsLegacySmartModeRejected(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--scan-mode", "smart"})
 
@@ -772,13 +659,9 @@ func TestParseFilescanArgsLegacySmartModeRejected(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsLocalFullSmart(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed, err := parseFilescanArgs([]string{"--scan-mode", "full", "--smart", "--max-targets", "10"})
 
@@ -814,13 +697,9 @@ func TestParseFilescanArgsLocalFullSmart(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsRejectScanPathFlag(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--scan-mode", "path", "--scan-path", "/tmp/sample"})
 
@@ -838,13 +717,9 @@ func TestParseFilescanArgsRejectScanPathFlag(t *testing.T) {
 
 }
 
-
-
 func TestParseFilescanArgsRejectWorkersFlag(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseFilescanArgs([]string{"--scan-mode", "path", "/tmp/sample", "--workers", "4"})
 
@@ -862,13 +737,9 @@ func TestParseFilescanArgsRejectWorkersFlag(t *testing.T) {
 
 }
 
-
-
 func TestParseChainedRiskOptionsHostscanConstraint(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	if _, err := parseChainedRiskOptions(nil, "deep", true, false); err == nil {
 
@@ -881,8 +752,6 @@ func TestParseChainedRiskOptionsHostscanConstraint(t *testing.T) {
 		t.Fatal("expected hostscan to reject explicit local_only risk mode")
 
 	}
-
-
 
 	opts, err := parseChainedRiskOptions(nil, "", true, false)
 
@@ -900,13 +769,9 @@ func TestParseChainedRiskOptionsHostscanConstraint(t *testing.T) {
 
 }
 
-
-
 func TestParseChainedRiskOptionsHostscanRejectsCloudUpload(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseChainedRiskOptions([]string{"-cloud-upload"}, "", true, false)
 
@@ -924,13 +789,9 @@ func TestParseChainedRiskOptionsHostscanRejectsCloudUpload(t *testing.T) {
 
 }
 
-
-
 func TestParseChainedRiskOptionsHostscanRejectsProcessMemoryWithoutProcessModule(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	_, err := parseChainedRiskOptions([]string{"-process-memory"}, "", true, false)
 
@@ -948,13 +809,9 @@ func TestParseChainedRiskOptionsHostscanRejectsProcessMemoryWithoutProcessModule
 
 }
 
-
-
 func TestParseChainedRiskOptionsHostscanAllowsProcessMemoryWithProcessModule(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	opts, err := parseChainedRiskOptions([]string{"-process-memory"}, "", true, true)
 
@@ -978,13 +835,9 @@ func TestParseChainedRiskOptionsHostscanAllowsProcessMemoryWithProcessModule(t *
 
 }
 
-
-
 func TestParseChainedRiskOptionsFilescanAllowsCloudUpload(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	opts, err := parseChainedRiskOptions([]string{"-cloud-upload"}, "", false, false)
 
@@ -1002,13 +855,9 @@ func TestParseChainedRiskOptionsFilescanAllowsCloudUpload(t *testing.T) {
 
 }
 
-
-
 func TestDedupeRowsExactMatchOnly(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	rows := []map[string]any{
 
@@ -1017,7 +866,6 @@ func TestDedupeRowsExactMatchOnly(t *testing.T) {
 		{"b": "x", "a": 1},
 
 		{"a": 1, "b": "y"},
-
 	}
 
 	got := dedupeRows(rows)
@@ -1030,41 +878,31 @@ func TestDedupeRowsExactMatchOnly(t *testing.T) {
 
 }
 
-
-
 func TestAnySliceToMapRowsBatchMatchesLegacy(t *testing.T) {
 
 	t.Parallel()
 
-
-
 	type nested struct {
-
-		Name  string   `json:"name"`
+		Name string `json:"name"`
 
 		Flags []string `json:"flags,omitempty"`
-
 	}
 
 	type row struct {
+		ID int `json:"id"`
 
-		ID     int            `json:"id"`
+		Name string `json:"name"`
 
-		Name   string         `json:"name"`
+		Meta nested `json:"meta"`
 
-		Meta   nested         `json:"meta"`
+		Ptr *nested `json:"ptr,omitempty"`
 
-		Ptr    *nested        `json:"ptr,omitempty"`
+		Labels []string `json:"labels"`
 
-		Labels []string       `json:"labels"`
+		Any map[string]any `json:"any"`
 
-		Any    map[string]any `json:"any"`
-
-		When   time.Time      `json:"when"`
-
+		When time.Time `json:"when"`
 	}
-
-
 
 	fixed := time.Date(2026, 4, 17, 8, 0, 0, 0, time.UTC)
 
@@ -1072,43 +910,38 @@ func TestAnySliceToMapRowsBatchMatchesLegacy(t *testing.T) {
 
 		{
 
-			ID:     1,
+			ID: 1,
 
-			Name:   "alpha",
+			Name: "alpha",
 
-			Meta:   nested{Name: "m1", Flags: []string{"x", "y"}},
+			Meta: nested{Name: "m1", Flags: []string{"x", "y"}},
 
-			Ptr:    &nested{Name: "p1"},
+			Ptr: &nested{Name: "p1"},
 
 			Labels: []string{"l1", "l2"},
 
-			Any:    map[string]any{"k": "v", "n": 1},
+			Any: map[string]any{"k": "v", "n": 1},
 
-			When:   fixed,
-
+			When: fixed,
 		},
 
 		{
 
-			ID:     2,
+			ID: 2,
 
-			Name:   "beta",
+			Name: "beta",
 
-			Meta:   nested{Name: "m2"},
+			Meta: nested{Name: "m2"},
 
-			Ptr:    nil,
+			Ptr: nil,
 
 			Labels: []string{},
 
-			Any:    map[string]any{"k": "v2", "arr": []any{1, "x"}},
+			Any: map[string]any{"k": "v2", "arr": []any{1, "x"}},
 
-			When:   fixed.Add(time.Minute),
-
+			When: fixed.Add(time.Minute),
 		},
-
 	}
-
-
 
 	got, err := anySliceToMapRows(input)
 
@@ -1135,8 +968,6 @@ func TestAnySliceToMapRowsBatchMatchesLegacy(t *testing.T) {
 		t.Fatalf("batch conversion mismatch\n got=%s\nwant=%s", string(gotJSON), string(wantJSON))
 
 	}
-
-
 
 	gotPtr, err := anySliceToMapRows(&input)
 
@@ -1166,13 +997,9 @@ func TestAnySliceToMapRowsBatchMatchesLegacy(t *testing.T) {
 
 }
 
-
-
 func TestFlattenRowsAndHeadersMatchesLegacyHeaderCollection(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	rows := []map[string]any{
 
@@ -1185,22 +1012,16 @@ func TestFlattenRowsAndHeadersMatchesLegacyHeaderCollection(t *testing.T) {
 				"k1": "x",
 
 				"k2": 2,
-
 			},
-
 		},
 
 		{
 
 			"simple": "v2",
 
-			"arr":    []any{1, "a"},
-
+			"arr": []any{1, "a"},
 		},
-
 	}
-
-
 
 	flatRows, headers := flattenRowsAndHeaders(rows)
 
@@ -1232,178 +1053,311 @@ func TestFlattenRowsAndHeadersMatchesLegacyHeaderCollection(t *testing.T) {
 
 }
 
-
-
 func TestBenchmarkRowsForDisplay(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    rows := []benchmark.Row{
-        {Host: "host-a", Template: "windows", CheckID: "W-1", CheckName: "测试项1", Category: "security", Expected: "期望值1", Actual: "展示值1", Status: "pass", Severity: "high", Recommendation: "整改建议1"},
-        {Host: "host-a", Template: "windows", CheckID: "4", CheckName: "测试项2", Category: "account", Expected: "期望值2", Actual: "展示值2", Status: "unknown", StatusReason: "informational_check", Severity: "info", Recommendation: "整改建议2"},
-        {Host: "host-a", Template: "windows", CheckID: "W-3", CheckName: "测试项3", Category: "account", Expected: "期望值3", Actual: "展示值3", Status: "fail", Severity: "low", Recommendation: "整改建议3"},
-    }
+	rows := []benchmark.Row{
+		{Host: "host-a", Template: "windows", CheckID: "W-1", CheckName: "测试项1", Category: "security", Expected: "期望值1", Actual: "展示值1", Status: "pass", Severity: "high", Recommendation: "整改建议1"},
+		{Host: "host-a", Template: "windows", CheckID: "4", CheckName: "测试项2", Category: "account", Expected: "期望值2", Actual: "展示值2", Status: "unknown", StatusReason: "informational_check", Severity: "info", Recommendation: "整改建议2"},
+		{Host: "host-a", Template: "windows", CheckID: "W-3", CheckName: "测试项3", Category: "account", Expected: "期望值3", Actual: "展示值3", Status: "fail", Severity: "low", Recommendation: "整改建议3"},
+	}
 
-    displayRows := benchmarkRowsForDisplay(rows)
-    if len(displayRows) != 3 {
-        t.Fatalf("expected 3 display rows, got %d", len(displayRows))
-    }
-    if got := displayRows[0]["检查项编号"]; got != "WIN-1" {
-        t.Fatalf("expected WIN-1, got %#v", got)
-    }
-    if got := displayRows[1]["检查项编号"]; got != "WIN-DISP-004" {
-        t.Fatalf("expected WIN-DISP-004, got %#v", got)
-    }
-    if got := displayRows[0]["判定结果"]; got != "符合" {
-        t.Fatalf("expected pass display, got %#v", got)
-    }
-    if got := displayRows[0]["风险等级"]; got != nil {
-        t.Fatalf("expected pass row severity hidden, got %#v", got)
-    }
-    if got := displayRows[0]["整改建议"]; got != nil {
-        t.Fatalf("expected pass row recommendation hidden, got %#v", got)
-    }
-    if got := displayRows[1]["判定结果"]; got != "信息项" {
-        t.Fatalf("expected informational display, got %#v", got)
-    }
-    if got := displayRows[1]["风险等级"]; got != nil {
-        t.Fatalf("expected informational row severity hidden, got %#v", got)
-    }
-    if got := displayRows[1]["整改建议"]; got != nil {
-        t.Fatalf("expected informational row recommendation hidden, got %#v", got)
-    }
-    if got := displayRows[2]["判定结果"]; got != "不符合" {
-        t.Fatalf("expected fail display, got %#v", got)
-    }
-    if got := displayRows[2]["风险等级"]; got != "低" {
-        t.Fatalf("expected fail row severity shown, got %#v", got)
-    }
-    if got := displayRows[2]["整改建议"]; got != "整改建议3" {
-        t.Fatalf("expected fail recommendation shown, got %#v", got)
-    }
-    if _, ok := displayRows[0]["证据摘要"]; ok {
-        t.Fatalf("expected evidence summary column omitted, got %#v", displayRows[0])
-    }
+	displayRows := benchmarkRowsForDisplay(rows)
+	if len(displayRows) != 3 {
+		t.Fatalf("expected 3 display rows, got %d", len(displayRows))
+	}
+	if got := displayRows[0]["检查项编号"]; got != "WIN-1" {
+		t.Fatalf("expected WIN-1, got %#v", got)
+	}
+	if got := displayRows[1]["检查项编号"]; got != "WIN-DISP-004" {
+		t.Fatalf("expected WIN-DISP-004, got %#v", got)
+	}
+	if got := displayRows[0]["判定结果"]; got != "符合" {
+		t.Fatalf("expected pass display, got %#v", got)
+	}
+	if got := displayRows[0]["风险等级"]; got != nil {
+		t.Fatalf("expected pass row severity hidden, got %#v", got)
+	}
+	if got := displayRows[0]["整改建议"]; got != nil {
+		t.Fatalf("expected pass row recommendation hidden, got %#v", got)
+	}
+	if got := displayRows[1]["判定结果"]; got != "信息项" {
+		t.Fatalf("expected informational display, got %#v", got)
+	}
+	if got := displayRows[1]["风险等级"]; got != nil {
+		t.Fatalf("expected informational row severity hidden, got %#v", got)
+	}
+	if got := displayRows[1]["整改建议"]; got != nil {
+		t.Fatalf("expected informational row recommendation hidden, got %#v", got)
+	}
+	if got := displayRows[2]["判定结果"]; got != "不符合" {
+		t.Fatalf("expected fail display, got %#v", got)
+	}
+	if got := displayRows[2]["风险等级"]; got != "低" {
+		t.Fatalf("expected fail row severity shown, got %#v", got)
+	}
+	if got := displayRows[2]["整改建议"]; got != "整改建议3" {
+		t.Fatalf("expected fail recommendation shown, got %#v", got)
+	}
+	if _, ok := displayRows[0]["证据摘要"]; ok {
+		t.Fatalf("expected evidence summary column omitted, got %#v", displayRows[0])
+	}
 }
 
 func TestEmitOutputBenchmarkJSONUsesUTF8BOMOnWindows(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    payload := benchmark.ScanResult{Template: "windows", Summary: benchmark.Summary{Total: 1}, Rows: []benchmark.Row{{Template: "windows", CheckID: "1", CheckName: "1", Status: "unknown", Actual: "Microsoft Windows 10 Test", Evidence: "Microsoft Windows 10 Test"}}}
-    dir := t.TempDir()
-    jsonPath := filepath.Join(dir, "benchmark.json")
-    if err := emitOutput(payload, jsonPath); err != nil {
-        t.Fatalf("emitOutput json returned error: %v", err)
-    }
-    data, err := os.ReadFile(jsonPath)
-    if err != nil {
-        t.Fatalf("read benchmark json failed: %v", err)
-    }
-    if runtime.GOOS == "windows" {
-        if !bytes.HasPrefix(data, utf8BOM) {
-            t.Fatalf("expected UTF-8 BOM prefix for benchmark json on Windows")
-        }
-        data = bytes.TrimPrefix(data, utf8BOM)
-    } else if bytes.HasPrefix(data, utf8BOM) {
-        t.Fatalf("did not expect UTF-8 BOM prefix outside Windows")
-    }
-    var parsed benchmark.ScanResult
-    if err := json.Unmarshal(data, &parsed); err != nil {
-        t.Fatalf("benchmark json unmarshal failed: %v", err)
-    }
-    if len(parsed.Rows) != 1 || parsed.Rows[0].Actual != "Microsoft Windows 10 Test" {
-        t.Fatalf("unexpected benchmark json payload: %#v", parsed)
-    }
+	payload := benchmark.ScanResult{Template: "windows", Summary: benchmark.Summary{Total: 1}, Rows: []benchmark.Row{{Template: "windows", CheckID: "1", CheckName: "1", Status: "unknown", Actual: "Microsoft Windows 10 Test", Evidence: "Microsoft Windows 10 Test"}}}
+	dir := t.TempDir()
+	jsonPath := filepath.Join(dir, "benchmark.json")
+	if err := emitOutput(payload, jsonPath); err != nil {
+		t.Fatalf("emitOutput json returned error: %v", err)
+	}
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("read benchmark json failed: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		if !bytes.HasPrefix(data, utf8BOM) {
+			t.Fatalf("expected UTF-8 BOM prefix for benchmark json on Windows")
+		}
+		data = bytes.TrimPrefix(data, utf8BOM)
+	} else if bytes.HasPrefix(data, utf8BOM) {
+		t.Fatalf("did not expect UTF-8 BOM prefix outside Windows")
+	}
+	var parsed benchmark.ScanResult
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("benchmark json unmarshal failed: %v", err)
+	}
+	if len(parsed.Rows) != 1 || parsed.Rows[0].Actual != "Microsoft Windows 10 Test" {
+		t.Fatalf("unexpected benchmark json payload: %#v", parsed)
+	}
 }
 
 func TestPrintBenchmarkSummaryToTerminal(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    var out bytes.Buffer
-    progress := newTerminalProgressWithPin(&out, "benchmark", false)
-    printBenchmarkSummary(progress, benchmark.ScanResult{Template: "linux", Summary: benchmark.Summary{Total: 4, Pass: 2, Fail: 0, Unknown: 2, Informational: 1, Pending: 1, Evaluated: 2, ComplianceRate: 1.0, UnknownRate: 0.5, InformationalRate: 0.25, PendingRate: 0.25}})
-    got := out.String()
-    for _, want := range []string{"benchmark summary:", "template: linux", "counts", "total_checks", "compliant", "non_compliant", "informational", "pending", "rate", "compliance", "100.00%"} {
-        if !strings.Contains(got, want) {
-            t.Fatalf("expected %q in summary output, got: %s", want, got)
-        }
-    }
-    for _, unwanted := range []string{"informational_or_pending", "metric           display", "coverage_rate", "evaluable_checks", "informational_rate", "pending_rate"} {
-        if strings.Contains(got, unwanted) {
-            t.Fatalf("did not expect %q in summary output: %s", unwanted, got)
-        }
-    }
+	var out bytes.Buffer
+	progress := newTerminalProgressWithPin(&out, "benchmark", false)
+	printBenchmarkSummary(progress, benchmark.ScanResult{Template: "linux", Summary: benchmark.Summary{Total: 4, Pass: 2, Fail: 0, Unknown: 2, Informational: 1, Pending: 1, Evaluated: 2, ComplianceRate: 1.0, UnknownRate: 0.5, InformationalRate: 0.25, PendingRate: 0.25}})
+	got := out.String()
+	for _, want := range []string{"benchmark summary:", "template: linux", "counts", "total_checks", "compliant", "non_compliant", "informational", "pending", "rate", "compliance", "100.00%"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in summary output, got: %s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"informational_or_pending", "metric           display", "coverage_rate", "evaluable_checks", "informational_rate", "pending_rate"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("did not expect %q in summary output: %s", unwanted, got)
+		}
+	}
 }
 
 func TestEmitOutputBenchmarkXLSXAddsSummarySheet(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    payload := benchmark.ScanResult{Template: "linux", Summary: benchmark.Summary{Total: 4, Pass: 2, Fail: 1, Unknown: 1, Informational: 1, Pending: 0, Evaluated: 3, ComplianceRate: 2.0 / 3.0, UnknownRate: 0.25, InformationalRate: 0.25, PendingRate: 0}, Rows: []benchmark.Row{{Template: "linux", CheckID: "1", CheckName: "1", Category: "display", Status: "pass", Actual: "ok", Evidence: "ok", Command: "uname -a"}}}
-    dir := t.TempDir()
-    xlsxPath := filepath.Join(dir, "benchmark.xlsx")
-    if err := emitOutput(payload, xlsxPath); err != nil {
-        t.Fatalf("emitOutput xlsx returned error: %v", err)
-    }
-    file, err := excelize.OpenFile(xlsxPath)
-    if err != nil {
-        t.Fatalf("open xlsx failed: %v", err)
-    }
-    defer func() { _ = file.Close() }()
-    if sheets := file.GetSheetList(); !containsString(sheets, "results") || !containsString(sheets, "summary") {
-        t.Fatalf("expected results+summary sheets, got: %#v", sheets)
-    }
-    if metric, _ := file.GetCellValue("summary", "A5"); metric != "待确认项" {
-        t.Fatalf("unexpected summary metric A5: %q", metric)
-    }
-    if display, _ := file.GetCellValue("summary", "B5"); display != "0" {
-        t.Fatalf("unexpected summary display B5: %q", display)
-    }
-    if metric, _ := file.GetCellValue("summary", "A6"); metric != "可判定项" {
-        t.Fatalf("unexpected summary metric A6: %q", metric)
-    }
-    if display, _ := file.GetCellValue("summary", "B6"); display != "3" {
-        t.Fatalf("unexpected summary display B6: %q", display)
-    }
-    if metric, _ := file.GetCellValue("summary", "A7"); metric != "合规率" {
-        t.Fatalf("unexpected summary metric A7: %q", metric)
-    }
-    if display, _ := file.GetCellValue("summary", "B7"); display != "66.67%" {
-        t.Fatalf("unexpected summary display B7: %q", display)
-    }
-    if metric, _ := file.GetCellValue("summary", "A8"); metric != "信息项占比" {
-        t.Fatalf("unexpected summary metric A8: %q", metric)
-    }
-    if display, _ := file.GetCellValue("summary", "B8"); display != "25.00%" {
-        t.Fatalf("unexpected summary display B8: %q", display)
-    }
-    if metric, _ := file.GetCellValue("summary", "A9"); metric != "待确认项占比" {
-        t.Fatalf("unexpected summary metric A9: %q", metric)
-    }
-    if display, _ := file.GetCellValue("summary", "B9"); display != "0.00%" {
-        t.Fatalf("unexpected summary display B9: %q", display)
-    }
-    if activeSheetName := file.GetSheetName(file.GetActiveSheetIndex()); activeSheetName != "results" {
-        t.Fatalf("expected active sheet to be results, got: %q", activeSheetName)
-    }
+	payload := benchmark.ScanResult{Template: "linux", Summary: benchmark.Summary{Total: 4, Pass: 2, Fail: 1, Unknown: 1, Informational: 1, Pending: 0, Evaluated: 3, ComplianceRate: 2.0 / 3.0, UnknownRate: 0.25, InformationalRate: 0.25, PendingRate: 0}, Rows: []benchmark.Row{{Template: "linux", CheckID: "1", CheckName: "1", Category: "display", Status: "pass", Actual: "ok", Evidence: "ok", Command: "uname -a"}}}
+	dir := t.TempDir()
+	xlsxPath := filepath.Join(dir, "benchmark.xlsx")
+	if err := emitOutput(payload, xlsxPath); err != nil {
+		t.Fatalf("emitOutput xlsx returned error: %v", err)
+	}
+	file, err := excelize.OpenFile(xlsxPath)
+	if err != nil {
+		t.Fatalf("open xlsx failed: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+	if sheets := file.GetSheetList(); !containsString(sheets, "results") || !containsString(sheets, "summary") {
+		t.Fatalf("expected results+summary sheets, got: %#v", sheets)
+	}
+	if metric, _ := file.GetCellValue("summary", "A5"); metric != "待确认项" {
+		t.Fatalf("unexpected summary metric A5: %q", metric)
+	}
+	if display, _ := file.GetCellValue("summary", "B5"); display != "0" {
+		t.Fatalf("unexpected summary display B5: %q", display)
+	}
+	if metric, _ := file.GetCellValue("summary", "A6"); metric != "可判定项" {
+		t.Fatalf("unexpected summary metric A6: %q", metric)
+	}
+	if display, _ := file.GetCellValue("summary", "B6"); display != "3" {
+		t.Fatalf("unexpected summary display B6: %q", display)
+	}
+	if metric, _ := file.GetCellValue("summary", "A7"); metric != "合规率" {
+		t.Fatalf("unexpected summary metric A7: %q", metric)
+	}
+	if display, _ := file.GetCellValue("summary", "B7"); display != "66.67%" {
+		t.Fatalf("unexpected summary display B7: %q", display)
+	}
+	if metric, _ := file.GetCellValue("summary", "A8"); metric != "信息项占比" {
+		t.Fatalf("unexpected summary metric A8: %q", metric)
+	}
+	if display, _ := file.GetCellValue("summary", "B8"); display != "25.00%" {
+		t.Fatalf("unexpected summary display B8: %q", display)
+	}
+	if metric, _ := file.GetCellValue("summary", "A9"); metric != "待确认项占比" {
+		t.Fatalf("unexpected summary metric A9: %q", metric)
+	}
+	if display, _ := file.GetCellValue("summary", "B9"); display != "0.00%" {
+		t.Fatalf("unexpected summary display B9: %q", display)
+	}
+	if activeSheetName := file.GetSheetName(file.GetActiveSheetIndex()); activeSheetName != "results" {
+		t.Fatalf("expected active sheet to be results, got: %q", activeSheetName)
+	}
+}
+
+func TestWriteRiskExcelAddsSummarySheet(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "risk.xlsx")
+	payload := riskanalysis.SummaryResult{
+		Summary: riskanalysis.Summary{
+			Total:             4,
+			Critical:          1,
+			High:              1,
+			Pending:           1,
+			SuspiciousOffline: 1,
+		},
+		Results: []riskanalysis.AnalysisResult{
+			{ScanID: "a", RiskAssessment: riskanalysis.RiskAssessment{RiskLevel: riskanalysis.RiskLevelCritical}},
+		},
+	}
+	if err := writeRiskExcel(path, payload); err != nil {
+		t.Fatalf("writeRiskExcel returned error: %v", err)
+	}
+
+	file, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatalf("open xlsx failed: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	if sheets := file.GetSheetList(); !containsString(sheets, "risk_analysis") || !containsString(sheets, "summary") {
+		t.Fatalf("expected risk_analysis+summary sheets, got: %#v", sheets)
+	}
+	if got, _ := file.GetCellValue("summary", "A1"); got != "总计" {
+		t.Fatalf("unexpected summary A1: %q", got)
+	}
+	if got, _ := file.GetCellValue("summary", "B1"); got != "4" {
+		t.Fatalf("unexpected summary B1: %q", got)
+	}
+}
+
+func TestWriteRiskExcelUsesPrioritizedHeaderOrder(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "risk-order.xlsx")
+	payload := riskanalysis.SummaryResult{
+		Summary: riskanalysis.Summary{Total: 1, High: 1},
+		Results: []riskanalysis.AnalysisResult{
+			{
+				TargetPath: "C:\\sample.exe",
+				Hashes: riskanalysis.Hashes{
+					Sha256: "abc",
+				},
+				RiskAssessment: riskanalysis.RiskAssessment{
+					AnalysisMode: riskanalysis.ModeSmart,
+					RiskScore:    88,
+					RiskLevel:    riskanalysis.RiskLevelHigh,
+				},
+			},
+		},
+	}
+
+	if err := writeRiskExcel(path, payload); err != nil {
+		t.Fatalf("writeRiskExcel returned error: %v", err)
+	}
+
+	file, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatalf("open xlsx failed: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	want := []string{
+		"target_path",
+		"risk_assessment.risk_level",
+		"risk_assessment.risk_score",
+		"risk_assessment.analysis_mode",
+		"target_type",
+	}
+	for i, header := range want {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		got, _ := file.GetCellValue("risk_analysis", cell)
+		if got != header {
+			t.Fatalf("unexpected header at %s: got %q want %q", cell, got, header)
+		}
+	}
+}
+
+func TestEmitOutputRiskSummaryResultXLSXUsesRiskSheets(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "risk-emit.xlsx")
+	payload := riskanalysis.SummaryResult{
+		Summary: riskanalysis.Summary{
+			Total:    2,
+			Critical: 1,
+			High:     1,
+		},
+		Results: []riskanalysis.AnalysisResult{
+			{ScanID: "a", RiskAssessment: riskanalysis.RiskAssessment{RiskLevel: riskanalysis.RiskLevelCritical}},
+			{ScanID: "b", RiskAssessment: riskanalysis.RiskAssessment{RiskLevel: riskanalysis.RiskLevelHigh}},
+		},
+	}
+
+	if err := emitOutput(payload, path); err != nil {
+		t.Fatalf("emitOutput returned error: %v", err)
+	}
+
+	file, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatalf("open xlsx failed: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	if sheets := file.GetSheetList(); !containsString(sheets, "risk_analysis") || !containsString(sheets, "summary") {
+		t.Fatalf("expected risk_analysis+summary sheets, got: %#v", sheets)
+	}
 }
 
 func TestEmitOutputNonBenchmarkCSVDoesNotWriteSummarySidecar(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    payload := scanAggregateResult{Total: 1, Rows: []map[string]any{{"module": "process", "name": "cmd.exe"}}}
-    dir := t.TempDir()
-    csvPath := filepath.Join(dir, "hostscan.csv")
-    if err := emitOutput(payload, csvPath); err != nil {
-        t.Fatalf("emitOutput csv returned error: %v", err)
-    }
-    if _, err := os.Stat(filepath.Join(dir, "hostscan.summary.csv")); !errors.Is(err, os.ErrNotExist) {
-        t.Fatalf("expected no summary sidecar for non-benchmark csv, err=%v", err)
-    }
+	payload := scanAggregateResult{Total: 1, Rows: []map[string]any{{"module": "process", "name": "cmd.exe"}}}
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "hostscan.csv")
+	if err := emitOutput(payload, csvPath); err != nil {
+		t.Fatalf("emitOutput csv returned error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "hostscan.summary.csv")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no summary sidecar for non-benchmark csv, err=%v", err)
+	}
+}
+
+func TestOrderDisplayHeadersPrioritizesCommonOperationalFields(t *testing.T) {
+	t.Parallel()
+
+	headers := []string{
+		"zeta",
+		"status",
+		"name",
+		"hostname",
+		"path",
+		"displayIp",
+		"version",
+	}
+
+	got := orderDisplayHeaders(headers)
+	wantPrefix := []string{"displayIp", "hostname", "name", "path", "version", "status"}
+	for i, want := range wantPrefix {
+		if got[i] != want {
+			t.Fatalf("unexpected header at %d: got %q want %q (full=%#v)", i, got[i], want, got)
+		}
+	}
 }
 func TestEmitOutputPermissionDeniedFallsBackToStdoutJSON(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	payload := scanAggregateResult{
 
@@ -1412,12 +1366,8 @@ func TestEmitOutputPermissionDeniedFallsBackToStdoutJSON(t *testing.T) {
 		Rows: []map[string]any{
 
 			{"module": "process", "name": "cmd.exe"},
-
 		},
-
 	}
-
-
 
 	var stdout bytes.Buffer
 
@@ -1429,10 +1379,9 @@ func TestEmitOutputPermissionDeniedFallsBackToStdoutJSON(t *testing.T) {
 
 		json: func(path string, payload any) error { return nil },
 
-		csv:  func(path string, rows []map[string]any) error { return nil },
+		csv: func(path string, rows []map[string]any) error { return nil },
 
 		xlsx: func(path string, rows []map[string]any) error { return os.ErrPermission },
-
 	}, &stdout, &stderr, strings.NewReader("y\n"), func(outputPath string, writeErr error, stdin io.Reader, stderr io.Writer) (bool, error) {
 
 		promptCalled = true
@@ -1453,8 +1402,6 @@ func TestEmitOutputPermissionDeniedFallsBackToStdoutJSON(t *testing.T) {
 
 	}
 
-
-
 	stdoutStr := stdout.String()
 
 	if !strings.Contains(stdoutStr, "\"total\": 1") || !strings.Contains(stdoutStr, "\"rows\"") {
@@ -1465,13 +1412,9 @@ func TestEmitOutputPermissionDeniedFallsBackToStdoutJSON(t *testing.T) {
 
 }
 
-
-
 func TestEmitOutputPermissionDeniedPromptDeclineReturnsError(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	payload := scanAggregateResult{
 
@@ -1480,12 +1423,8 @@ func TestEmitOutputPermissionDeniedPromptDeclineReturnsError(t *testing.T) {
 		Rows: []map[string]any{
 
 			{"module": "process", "name": "cmd.exe"},
-
 		},
-
 	}
-
-
 
 	var stdout bytes.Buffer
 
@@ -1495,10 +1434,9 @@ func TestEmitOutputPermissionDeniedPromptDeclineReturnsError(t *testing.T) {
 
 		json: func(path string, payload any) error { return nil },
 
-		csv:  func(path string, rows []map[string]any) error { return nil },
+		csv: func(path string, rows []map[string]any) error { return nil },
 
 		xlsx: func(path string, rows []map[string]any) error { return os.ErrPermission },
-
 	}, &stdout, &stderr, strings.NewReader("n\n"), func(outputPath string, writeErr error, stdin io.Reader, stderr io.Writer) (bool, error) {
 
 		return false, nil
@@ -1519,13 +1457,9 @@ func TestEmitOutputPermissionDeniedPromptDeclineReturnsError(t *testing.T) {
 
 }
 
-
-
 func TestEmitOutputNonPermissionErrorDoesNotFallback(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	payload := scanAggregateResult{
 
@@ -1534,12 +1468,8 @@ func TestEmitOutputNonPermissionErrorDoesNotFallback(t *testing.T) {
 		Rows: []map[string]any{
 
 			{"module": "process", "name": "cmd.exe"},
-
 		},
-
 	}
-
-
 
 	var stdout bytes.Buffer
 
@@ -1551,10 +1481,9 @@ func TestEmitOutputNonPermissionErrorDoesNotFallback(t *testing.T) {
 
 		json: func(path string, payload any) error { return nil },
 
-		csv:  func(path string, rows []map[string]any) error { return nil },
+		csv: func(path string, rows []map[string]any) error { return nil },
 
 		xlsx: func(path string, rows []map[string]any) error { return writeErr },
-
 	}, &stdout, &stderr, strings.NewReader("y\n"), func(outputPath string, writeErr error, stdin io.Reader, stderr io.Writer) (bool, error) {
 
 		return true, nil
@@ -1581,13 +1510,9 @@ func TestEmitOutputNonPermissionErrorDoesNotFallback(t *testing.T) {
 
 }
 
-
-
 func TestWriteShardedXLSXFilesSplitsRowsAndNamesParts(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	rows := []map[string]any{
 
@@ -1600,18 +1525,13 @@ func TestWriteShardedXLSXFilesSplitsRowsAndNamesParts(t *testing.T) {
 		{"id": 4},
 
 		{"id": 5},
-
 	}
-
-
 
 	basePath := filepath.Join(t.TempDir(), "result.xlsx")
 
 	calledPaths := make([]string, 0)
 
 	calledSizes := make([]int, 0)
-
-
 
 	paths, err := writeShardedXLSXFiles(basePath, rows, 2, func(path string, partRows []map[string]any) error {
 
@@ -1629,8 +1549,6 @@ func TestWriteShardedXLSXFilesSplitsRowsAndNamesParts(t *testing.T) {
 
 	}
 
-
-
 	wantPaths := []string{
 
 		filepath.Join(filepath.Dir(basePath), "result_part1.xlsx"),
@@ -1638,12 +1556,9 @@ func TestWriteShardedXLSXFilesSplitsRowsAndNamesParts(t *testing.T) {
 		filepath.Join(filepath.Dir(basePath), "result_part2.xlsx"),
 
 		filepath.Join(filepath.Dir(basePath), "result_part3.xlsx"),
-
 	}
 
 	wantSizes := []int{2, 2, 1}
-
-
 
 	if !reflect.DeepEqual(paths, wantPaths) {
 
@@ -1665,29 +1580,20 @@ func TestWriteShardedXLSXFilesSplitsRowsAndNamesParts(t *testing.T) {
 
 }
 
-
-
 func TestWriteShardedXLSXFilesSinglePartKeepsOriginalName(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	rows := []map[string]any{
 
 		{"id": 1},
 
 		{"id": 2},
-
 	}
-
-
 
 	basePath := filepath.Join(t.TempDir(), "result.xlsx")
 
 	calledPaths := make([]string, 0)
-
-
 
 	paths, err := writeShardedXLSXFiles(basePath, rows, 10, func(path string, partRows []map[string]any) error {
 
@@ -1702,8 +1608,6 @@ func TestWriteShardedXLSXFilesSinglePartKeepsOriginalName(t *testing.T) {
 		t.Fatalf("writeShardedXLSXFiles returned error: %v", err)
 
 	}
-
-
 
 	wantPaths := []string{basePath}
 
@@ -1721,17 +1625,11 @@ func TestWriteShardedXLSXFilesSinglePartKeepsOriginalName(t *testing.T) {
 
 }
 
-
-
 func TestEmitGeneratedFileHintsForShardedOutput(t *testing.T) {
 
 	t.Parallel()
 
-
-
 	paths := []string{"result_part1.xlsx", "result_part2.xlsx"}
-
-
 
 	var stderr bytes.Buffer
 
@@ -1753,13 +1651,9 @@ func TestEmitGeneratedFileHintsForShardedOutput(t *testing.T) {
 
 }
 
-
-
 func TestValidateXLSXShapeLimits(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	if err := validateXLSXShape(xlsxMaxRows-1, xlsxMaxColumns); err != nil {
 
@@ -1767,15 +1661,11 @@ func TestValidateXLSXShapeLimits(t *testing.T) {
 
 	}
 
-
-
 	if err := validateXLSXShape(xlsxMaxRows, 1); err == nil || !strings.Contains(err.Error(), "row limit") {
 
 		t.Fatalf("expected row limit error, got: %v", err)
 
 	}
-
-
 
 	if err := validateXLSXShape(1, xlsxMaxColumns+1); err == nil || !strings.Contains(err.Error(), "column limit") {
 
@@ -1785,13 +1675,9 @@ func TestValidateXLSXShapeLimits(t *testing.T) {
 
 }
 
-
-
 func TestCompactWriteErrorMessageTrimsDuplicatedOpenPrefix(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	path := `D:\tmp\result.xlsx`
 
@@ -1807,13 +1693,9 @@ func TestCompactWriteErrorMessageTrimsDuplicatedOpenPrefix(t *testing.T) {
 
 }
 
-
-
 func TestCompactWriteErrorMessageFallsBackToRawError(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	err := errors.New("disk full")
 
@@ -1827,13 +1709,9 @@ func TestCompactWriteErrorMessageFallsBackToRawError(t *testing.T) {
 
 }
 
-
-
 func TestCompactScanTargetErrorMessageTrimsOpenPrefix(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	path := `D:\secure\secret.dll`
 
@@ -1849,13 +1727,9 @@ func TestCompactScanTargetErrorMessageTrimsOpenPrefix(t *testing.T) {
 
 }
 
-
-
 func TestCompactScanTargetErrorMessageFallsBackToRaw(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	err := errors.New("input/output timeout")
 
@@ -1869,25 +1743,18 @@ func TestCompactScanTargetErrorMessageFallsBackToRaw(t *testing.T) {
 
 }
 
-
-
 func TestExecuteHostscanSkipsFailedModuleAndContinues(t *testing.T) {
 
 	t.Parallel()
 
-
-
 	parsed := hostscanParseResult{
 
-		Modules:    []string{"invalid-hostscan-module"},
+		Modules: []string{"invalid-hostscan-module"},
 
-		MultiMode:  false,
+		MultiMode: false,
 
 		ModuleArgs: nil,
-
 	}
-
-
 
 	var progressOut bytes.Buffer
 
@@ -1911,8 +1778,6 @@ func TestExecuteHostscanSkipsFailedModuleAndContinues(t *testing.T) {
 
 	}
 
-
-
 	output := progressOut.String()
 
 	if !strings.Contains(output, "[WARN] hostscan module invalid-hostscan-module failed:") {
@@ -1929,23 +1794,16 @@ func TestExecuteHostscanSkipsFailedModuleAndContinues(t *testing.T) {
 
 }
 
-
-
 func TestExecuteFilescanWebModeSkipsFailedModuleAndContinues(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	parsed := filescanParseResult{
 
 		WebModules: []string{"invalid-filescan-module"},
 
 		ModuleArgs: nil,
-
 	}
-
-
 
 	var progressOut bytes.Buffer
 
@@ -1969,8 +1827,6 @@ func TestExecuteFilescanWebModeSkipsFailedModuleAndContinues(t *testing.T) {
 
 	}
 
-
-
 	output := progressOut.String()
 
 	if !strings.Contains(output, "[WARN] filescan module invalid-filescan-module failed:") {
@@ -1987,13 +1843,9 @@ func TestExecuteFilescanWebModeSkipsFailedModuleAndContinues(t *testing.T) {
 
 }
 
-
-
 func TestMapRowsToRiskRecordsWithPathCandidates(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	rows := []map[string]any{
 
@@ -2003,13 +1855,9 @@ func TestMapRowsToRiskRecordsWithPathCandidates(t *testing.T) {
 
 			"execPath": "/usr/bin/python3",
 
-			"conf":     "/etc/crontab",
-
+			"conf": "/etc/crontab",
 		},
-
 	}
-
-
 
 	records := mapRowsToRiskRecordsWithPathCandidates(rows, "file", []string{"execPath", "conf"})
 
@@ -2018,8 +1866,6 @@ func TestMapRowsToRiskRecordsWithPathCandidates(t *testing.T) {
 		t.Fatalf("expected 2 records, got %d", len(records))
 
 	}
-
-
 
 	got := map[string]bool{}
 
@@ -2045,21 +1891,14 @@ func TestMapRowsToRiskRecordsWithPathCandidates(t *testing.T) {
 
 }
 
-
-
 func TestMapRowsToRiskRecordsWithPathCandidatesFallback(t *testing.T) {
 
 	t.Parallel()
 
-
-
 	rows := []map[string]any{
 
 		{"hostname": "node-a", "name": "service-a"},
-
 	}
-
-
 
 	records := mapRowsToRiskRecordsWithPathCandidates(rows, "file", []string{"execPath"})
 
@@ -2083,29 +1922,21 @@ func TestMapRowsToRiskRecordsWithPathCandidatesFallback(t *testing.T) {
 
 }
 
-
-
 func TestMapRowsToRiskRecordsWithSoftwarePathCandidates(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	rows := []map[string]any{
 
 		{
 
-			"name":       "nginx",
+			"name": "nginx",
 
-			"binPath":    "/usr/sbin/nginx",
+			"binPath": "/usr/sbin/nginx",
 
 			"configPath": "/etc/nginx/nginx.conf",
-
 		},
-
 	}
-
-
 
 	records := mapRowsToRiskRecordsWithPathCandidates(rows, "file", []string{"binPath", "configPath"})
 
@@ -2139,13 +1970,9 @@ func TestMapRowsToRiskRecordsWithSoftwarePathCandidates(t *testing.T) {
 
 }
 
-
-
 func TestAnalyzeRiskResultsEmptyOverrideRecords(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	results, err := analyzeRiskResults(riskOptions{Mode: "local_only"}, []riskanalysis.ScanRecord{}, nil)
 
@@ -2163,22 +1990,50 @@ func TestAnalyzeRiskResultsEmptyOverrideRecords(t *testing.T) {
 
 }
 
+func TestRiskSummaryResultJSONShape(t *testing.T) {
 
+	t.Parallel()
+
+	payload := riskanalysis.SummaryResult{
+		Summary: riskanalysis.Summary{
+			Total:    2,
+			Critical: 1,
+			High:     1,
+		},
+		Results: []riskanalysis.AnalysisResult{
+			{ScanID: "a", RiskAssessment: riskanalysis.RiskAssessment{RiskLevel: riskanalysis.RiskLevelCritical}},
+			{ScanID: "b", RiskAssessment: riskanalysis.RiskAssessment{RiskLevel: riskanalysis.RiskLevelHigh}},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if _, ok := doc["summary"]; !ok {
+		t.Fatalf("expected summary field in payload: %s", string(data))
+	}
+	if _, ok := doc["results"]; !ok {
+		t.Fatalf("expected results field in payload: %s", string(data))
+	}
+}
 
 func TestClassifyRiskSeverityBand(t *testing.T) {
 
 	t.Parallel()
 
-
-
 	cases := []struct {
-
 		name string
 
-		in   riskanalysis.RiskAssessment
+		in riskanalysis.RiskAssessment
 
 		want riskSeverityBand
-
 	}{
 
 		{
@@ -2188,11 +2043,9 @@ func TestClassifyRiskSeverityBand(t *testing.T) {
 			in: riskanalysis.RiskAssessment{
 
 				RiskLevel: riskanalysis.RiskLevelCritical,
-
 			},
 
 			want: riskSeverityHigh,
-
 		},
 
 		{
@@ -2202,11 +2055,9 @@ func TestClassifyRiskSeverityBand(t *testing.T) {
 			in: riskanalysis.RiskAssessment{
 
 				RiskLevel: riskanalysis.RiskLevelMedium,
-
 			},
 
 			want: riskSeverityMedium,
-
 		},
 
 		{
@@ -2216,11 +2067,9 @@ func TestClassifyRiskSeverityBand(t *testing.T) {
 			in: riskanalysis.RiskAssessment{
 
 				RiskLevel: riskanalysis.RiskLevelLow,
-
 			},
 
 			want: riskSeverityLow,
-
 		},
 
 		{
@@ -2232,11 +2081,9 @@ func TestClassifyRiskSeverityBand(t *testing.T) {
 				RiskLevel: "unknown",
 
 				RiskScore: 88,
-
 			},
 
 			want: riskSeverityHigh,
-
 		},
 
 		{
@@ -2248,16 +2095,11 @@ func TestClassifyRiskSeverityBand(t *testing.T) {
 				RiskLevel: "unknown",
 
 				RiskScore: 10,
-
 			},
 
 			want: riskSeverityNone,
-
 		},
-
 	}
-
-
 
 	for _, tc := range cases {
 
@@ -2279,13 +2121,9 @@ func TestClassifyRiskSeverityBand(t *testing.T) {
 
 }
 
-
-
 func TestFormatRiskStreamLineIncludesBasicInfo(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	size := int64(2048)
 
@@ -2293,23 +2131,18 @@ func TestFormatRiskStreamLineIncludesBasicInfo(t *testing.T) {
 
 		TargetPath: "C:\\test\\a.exe",
 
-		FileSize:   &size,
+		FileSize: &size,
 
 		Hashes: riskanalysis.Hashes{
 
 			Sha256: "abc123",
-
 		},
 
 		LocalAnalysis: &riskanalysis.LocalAnalysis{
 
 			YaraResults: []riskanalysis.YaraRuleMatch{{RuleName: "Test.Rule"}},
-
 		},
-
 	}
-
-
 
 	line := formatRiskStreamLine(result, riskSeverityHigh, false)
 
@@ -2345,13 +2178,31 @@ func TestFormatRiskStreamLineIncludesBasicInfo(t *testing.T) {
 
 }
 
+func TestPrintRiskStreamSummaryIncludesExtendedCategories(t *testing.T) {
 
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := newTerminalProgressWithPin(&out, "risk", false)
+	printRiskStreamSummary(progress, riskanalysis.Summary{
+		Total:             5,
+		Critical:          1,
+		High:              1,
+		Low:               1,
+		Pending:           1,
+		SuspiciousOffline: 1,
+	})
+	got := out.String()
+	for _, want := range []string{"Risk Summary:", "Total risky files: 5", "CRITICAL: 1", "HIGH: 1", "LOW: 1", "PENDING: 1", "SUSPICIOUS_OFFLINE: 1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in summary output, got: %s", want, got)
+		}
+	}
+}
 
 func TestCompactSHA256(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	full := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
@@ -2365,13 +2216,9 @@ func TestCompactSHA256(t *testing.T) {
 
 }
 
-
-
 func TestCompactMiddleTruncatesLongPath(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	value := "C:\\very\\long\\path\\to\\something\\binary\\that\\is\\too\\long\\sample.exe"
 
@@ -2391,13 +2238,9 @@ func TestCompactMiddleTruncatesLongPath(t *testing.T) {
 
 }
 
-
-
 func TestNextAutoExcelOutputPathEmptyDir(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	dir := t.TempDir()
 
@@ -2419,13 +2262,9 @@ func TestNextAutoExcelOutputPathEmptyDir(t *testing.T) {
 
 }
 
-
-
 func TestNextAutoExcelOutputPathWithResultOnly(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	dir := t.TempDir()
 
@@ -2453,13 +2292,9 @@ func TestNextAutoExcelOutputPathWithResultOnly(t *testing.T) {
 
 }
 
-
-
 func TestNextAutoExcelOutputPathWithResultOneUsesMaxPlusOne(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	dir := t.TempDir()
 
@@ -2493,13 +2328,9 @@ func TestNextAutoExcelOutputPathWithResultOneUsesMaxPlusOne(t *testing.T) {
 
 }
 
-
-
 func TestNextAutoJSONOutputPathEmptyDir(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	dir := t.TempDir()
 
@@ -2521,13 +2352,9 @@ func TestNextAutoJSONOutputPathEmptyDir(t *testing.T) {
 
 }
 
-
-
 func TestNextAutoJSONOutputPathWithResultOnly(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	dir := t.TempDir()
 
@@ -2555,13 +2382,9 @@ func TestNextAutoJSONOutputPathWithResultOnly(t *testing.T) {
 
 }
 
-
-
 func TestNextAutoJSONOutputPathWithResultOneUsesMaxPlusOne(t *testing.T) {
 
 	t.Parallel()
-
-
 
 	dir := t.TempDir()
 
@@ -2595,8 +2418,6 @@ func TestNextAutoJSONOutputPathWithResultOneUsesMaxPlusOne(t *testing.T) {
 
 }
 
-
-
 func TestResolveOutputPathAutoSBOMSentinel(t *testing.T) {
 
 	dir := t.TempDir()
@@ -2620,8 +2441,6 @@ func TestResolveOutputPathAutoSBOMSentinel(t *testing.T) {
 		_ = os.Chdir(orig)
 
 	}()
-
-
 
 	resolved, autoGenerated, err := resolveOutputPath(autoSBOMOutputSentinel)
 
@@ -2647,7 +2466,137 @@ func TestResolveOutputPathAutoSBOMSentinel(t *testing.T) {
 
 }
 
+func TestParseSBOMArgsRequiresExactlyOneTarget(t *testing.T) {
 
+	t.Parallel()
+
+	_, err := parseSBOMArgs([]string{"--format", "xspdx-json"})
+	if err == nil {
+		t.Fatal("expected missing target error")
+	}
+	if !strings.Contains(err.Error(), "exactly one target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseSBOMArgsRejectsMultipleTargets(t *testing.T) {
+
+	t.Parallel()
+
+	_, err := parseSBOMArgs([]string{"-p", "demo", "--image-target", "nginx:1.27"})
+	if err == nil {
+		t.Fatal("expected mutually exclusive target error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseSBOMArgsAcceptsImageTarget(t *testing.T) {
+
+	t.Parallel()
+
+	parsed, err := parseSBOMArgs([]string{"--image-target", "image.tar"})
+	if err != nil {
+		t.Fatalf("parseSBOMArgs returned error: %v", err)
+	}
+	if parsed.ImageTarget != "image.tar" {
+		t.Fatalf("unexpected image target: %#v", parsed)
+	}
+	if parsed.Path != "" {
+		t.Fatalf("expected only image target set, got %#v", parsed)
+	}
+	if parsed.TargetType != sbom.TargetTypeAuto {
+		t.Fatalf("expected auto target type, got %#v", parsed)
+	}
+}
+
+func TestParseSBOMArgsAcceptsLegacyImageArchiveTarget(t *testing.T) {
+
+	t.Parallel()
+
+	parsed, err := parseSBOMArgs([]string{"--image-archive", "image.tar"})
+	if err != nil {
+		t.Fatalf("parseSBOMArgs returned error: %v", err)
+	}
+	if parsed.ImageTarget != "image.tar" {
+		t.Fatalf("unexpected image archive target: %#v", parsed)
+	}
+	if parsed.TargetType != sbom.TargetTypeArchive {
+		t.Fatalf("expected archive target type, got %#v", parsed)
+	}
+}
+
+func TestParseSBOMArgsAcceptsLegacyOCILayoutTarget(t *testing.T) {
+
+	t.Parallel()
+
+	parsed, err := parseSBOMArgs([]string{"--oci-layout", "layout-dir"})
+	if err != nil {
+		t.Fatalf("parseSBOMArgs returned error: %v", err)
+	}
+	if parsed.ImageTarget != "layout-dir" {
+		t.Fatalf("unexpected OCI layout target: %#v", parsed)
+	}
+	if parsed.TargetType != sbom.TargetTypeOCILayout {
+		t.Fatalf("expected OCI layout target type, got %#v", parsed)
+	}
+}
+
+func TestParseSBOMArgsAcceptsLegacyImageReferenceTarget(t *testing.T) {
+
+	t.Parallel()
+
+	parsed, err := parseSBOMArgs([]string{"--image", "nginx:1.27"})
+	if err != nil {
+		t.Fatalf("parseSBOMArgs returned error: %v", err)
+	}
+	if parsed.ImageTarget != "nginx:1.27" {
+		t.Fatalf("unexpected image target: %#v", parsed)
+	}
+	if parsed.TargetType != sbom.TargetTypeImage {
+		t.Fatalf("expected image target type, got %#v", parsed)
+	}
+}
+
+func TestParseSBOMArgsRejectsTargetTypeWithPath(t *testing.T) {
+
+	t.Parallel()
+
+	_, err := parseSBOMArgs([]string{"-p", "demo", "--target-type", "archive"})
+	if err == nil {
+		t.Fatal("expected path and target-type conflict")
+	}
+	if !strings.Contains(err.Error(), "cannot be used with -p/--path") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseSBOMArgsRejectsStandaloneTargetType(t *testing.T) {
+
+	t.Parallel()
+
+	_, err := parseSBOMArgs([]string{"--target-type", "image"})
+	if err == nil {
+		t.Fatal("expected target-type requires image-target error")
+	}
+	if !strings.Contains(err.Error(), "requires --image-target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseSBOMArgsAcceptsExplicitTargetType(t *testing.T) {
+
+	t.Parallel()
+
+	parsed, err := parseSBOMArgs([]string{"--image-target", "layout-dir", "--target-type", "oci-layout"})
+	if err != nil {
+		t.Fatalf("parseSBOMArgs returned error: %v", err)
+	}
+	if parsed.ImageTarget != "layout-dir" || parsed.TargetType != sbom.TargetTypeOCILayout {
+		t.Fatalf("unexpected parsed target: %#v", parsed)
+	}
+}
 
 func TestResolveModuleWorkerLimitHonorsEnv(t *testing.T) {
 
@@ -2661,8 +2610,6 @@ func TestResolveModuleWorkerLimitHonorsEnv(t *testing.T) {
 
 }
 
-
-
 func TestResolveModuleWorkerLimitClampsToModuleCount(t *testing.T) {
 
 	t.Setenv("C_EYES_MODULE_WORKERS", "8")
@@ -2674,8 +2621,6 @@ func TestResolveModuleWorkerLimitClampsToModuleCount(t *testing.T) {
 	}
 
 }
-
-
 
 func TestResolveModuleWorkerProfileForcedWorkersDisablesAdaptive(t *testing.T) {
 
@@ -2697,8 +2642,6 @@ func TestResolveModuleWorkerProfileForcedWorkersDisablesAdaptive(t *testing.T) {
 
 }
 
-
-
 func TestResolveModuleWorkerProfileDisableAdaptiveEnv(t *testing.T) {
 
 	t.Setenv("C_EYES_MODULE_DISABLE_ADAPTIVE", "true")
@@ -2719,36 +2662,30 @@ func TestResolveModuleWorkerProfileDisableAdaptiveEnv(t *testing.T) {
 
 }
 
-
-
 func TestDecideNextModuleWorkerLimit(t *testing.T) {
 
 	profile := moduleWorkerProfile{
 
-		min:          1,
+		min: 1,
 
-		max:          6,
+		max: 6,
 
-		cpuHigh:      0.90,
+		cpuHigh: 0.90,
 
-		cpuLow:       0.60,
+		cpuLow: 0.60,
 
 		memHighBytes: moduleMiBToBytes(2048),
 
-		memLowBytes:  moduleMiBToBytes(512),
-
+		memLowBytes: moduleMiBToBytes(512),
 	}
-
-
 
 	up := decideNextModuleWorkerLimit(2, 20, moduleRuntimeStats{
 
 		cpuUtilization: 0.20,
 
-		cpuValid:       true,
+		cpuValid: true,
 
-		memoryBytes:    moduleMiBToBytes(256),
-
+		memoryBytes: moduleMiBToBytes(256),
 	}, profile)
 
 	if up != 3 {
@@ -2757,16 +2694,13 @@ func TestDecideNextModuleWorkerLimit(t *testing.T) {
 
 	}
 
-
-
 	down := decideNextModuleWorkerLimit(4, 20, moduleRuntimeStats{
 
 		cpuUtilization: 0.95,
 
-		cpuValid:       true,
+		cpuValid: true,
 
-		memoryBytes:    moduleMiBToBytes(256),
-
+		memoryBytes: moduleMiBToBytes(256),
 	}, profile)
 
 	if down != 3 {
@@ -2775,16 +2709,13 @@ func TestDecideNextModuleWorkerLimit(t *testing.T) {
 
 	}
 
-
-
 	memDown := decideNextModuleWorkerLimit(3, 20, moduleRuntimeStats{
 
 		cpuUtilization: 0.10,
 
-		cpuValid:       true,
+		cpuValid: true,
 
-		memoryBytes:    moduleMiBToBytes(2500),
-
+		memoryBytes: moduleMiBToBytes(2500),
 	}, profile)
 
 	if memDown != 2 {
@@ -2794,8 +2725,6 @@ func TestDecideNextModuleWorkerLimit(t *testing.T) {
 	}
 
 }
-
-
 
 func legacyAnySliceToMapRows(values any) ([]map[string]any, error) {
 
@@ -2819,8 +2748,6 @@ func legacyAnySliceToMapRows(values any) ([]map[string]any, error) {
 
 	}
 
-
-
 	rows := make([]map[string]any, 0, rv.Len())
 
 	for i := 0; i < rv.Len(); i++ {
@@ -2840,8 +2767,6 @@ func legacyAnySliceToMapRows(values any) ([]map[string]any, error) {
 	return rows, nil
 
 }
-
-
 
 func collectHeadersLegacy(rows []map[string]any) []string {
 
@@ -2873,13 +2798,9 @@ func collectHeadersLegacy(rows []map[string]any) []string {
 
 }
 
-
-
 func runUnifiedCLIWithCapturedStderr(t *testing.T, args []string) (int, string) {
 
 	t.Helper()
-
-
 
 	originalStderr := os.Stderr
 
@@ -2893,8 +2814,6 @@ func runUnifiedCLIWithCapturedStderr(t *testing.T, args []string) (int, string) 
 
 	os.Stderr = writer
 
-
-
 	outputC := make(chan string, 1)
 
 	go func() {
@@ -2904,8 +2823,6 @@ func runUnifiedCLIWithCapturedStderr(t *testing.T, args []string) (int, string) 
 		outputC <- string(data)
 
 	}()
-
-
 
 	code := runUnifiedCLI(args)
 
@@ -2920,8 +2837,6 @@ func runUnifiedCLIWithCapturedStderr(t *testing.T, args []string) (int, string) 
 	return code, output
 
 }
-
-
 
 func containsString(values []string, want string) bool {
 
@@ -2939,8 +2854,6 @@ func containsString(values []string, want string) bool {
 
 }
 
-
-
 func fileSizeOrZero(info os.FileInfo) int64 {
 
 	if info == nil {
@@ -2952,5 +2865,3 @@ func fileSizeOrZero(info os.FileInfo) int64 {
 	return info.Size()
 
 }
-
-

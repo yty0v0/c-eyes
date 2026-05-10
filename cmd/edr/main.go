@@ -1883,9 +1883,13 @@ func riskAnalyze(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	summaryPayload := riskanalysis.SummaryResult{
+		Summary: riskanalysis.BuildSummary(results),
+		Results: results,
+	}
 
 	if opts.ExcelPath != "" {
-		if err := writeRiskExcel(opts.ExcelPath, results); err != nil {
+		if err := writeRiskExcel(opts.ExcelPath, summaryPayload); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -1903,7 +1907,7 @@ func riskAnalyze(args []string) {
 
 		encoder := json.NewEncoder(file)
 		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(results); err != nil {
+		if err := encoder.Encode(summaryPayload); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -1913,7 +1917,7 @@ func riskAnalyze(args []string) {
 
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(results); err != nil {
+	if err := encoder.Encode(summaryPayload); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

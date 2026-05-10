@@ -136,6 +136,21 @@ type AnalysisResult struct {
 	CloudUploadDurationMS int64              `json:"cloud_upload_duration_ms,omitempty"`
 }
 
+type Summary struct {
+	Total             int `json:"total"`
+	Critical          int `json:"critical,omitempty"`
+	High              int `json:"high,omitempty"`
+	Medium            int `json:"medium,omitempty"`
+	Low               int `json:"low,omitempty"`
+	Pending           int `json:"pending,omitempty"`
+	SuspiciousOffline int `json:"suspicious_offline,omitempty"`
+}
+
+type SummaryResult struct {
+	Summary Summary          `json:"summary"`
+	Results []AnalysisResult `json:"results"`
+}
+
 // AnalysisHints carries local context into staged cloud decisions.
 type AnalysisHints struct {
 	TargetType       string

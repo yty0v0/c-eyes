@@ -18,8 +18,8 @@ type assetStore struct {
 }
 
 func defaultStorePath() string {
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".c-eyes", "netscan-assets.db")
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		return filepath.Join(filepath.Dir(exe), "netscan-assets.db")
 	}
 	return "netscan-assets.db"
 }
@@ -63,6 +63,12 @@ func (s *assetStore) upsert(ctx context.Context, row AssetRow, nowMs int64) (int
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if upgradedFirstSeen, upgraded, err := s.upgradeWeakIdentity(ctx, row, nowMs); err != nil {
+		return 0, 0, err
+	} else if upgraded {
+		return upgradedFirstSeen, nowMs, nil
+	}
+
 	var firstSeen int64
 	err := s.db.QueryRowContext(ctx, "SELECT first_seen FROM netscan_assets WHERE asset_id = ?", row.AssetID).Scan(&firstSeen)
 	switch {
@@ -93,6 +99,138 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	default:
 		return 0, 0, err
 	}
+}
+
+func (s *assetStore) upgradeWeakIdentity(ctx context.Context, row AssetRow, nowMs int64) (int64, bool, error) {
+	if s == nil || s.db == nil || row.MACAddress == nil {
+		return 0, false, nil
+	}
+	mac := strings.TrimSpace(*row.MACAddress)
+	ip := strings.TrimSpace(row.IPAddress)
+	if mac == "" || ip == "" {
+		return 0, false, nil
+	}
+
+	strongID := row.AssetID
+	weakID := deterministicAssetID(ip, "")
+	if weakID == strongID {
+		return 0, false, nil
+	}
+
+	var existingStrong string
+	err := s.db.QueryRowContext(ctx, "SELECT asset_id FROM netscan_assets WHERE asset_id = ?", strongID).Scan(&existingStrong)
+	switch {
+	case err == nil:
+		return 0, false, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return 0, false, err
+	}
+
+	var weak assetStoreRow
+	err = s.db.QueryRowContext(ctx, `
+SELECT asset_id, ip_address, mac_address, hostname, mac_vendor, os_family, device_type, asset_status, first_seen, last_seen
+FROM netscan_assets WHERE asset_id = ?`, weakID).Scan(
+		&weak.AssetID,
+		&weak.IPAddress,
+		&weak.MACAddress,
+		&weak.Hostname,
+		&weak.MACVendor,
+		&weak.OSFamily,
+		&weak.DeviceType,
+		&weak.AssetStatus,
+		&weak.FirstSeen,
+		&weak.LastSeen,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, false, nil
+	case err != nil:
+		return 0, false, err
+	}
+
+	if !weakIdentityUpgradeAllowed(weak, row) {
+		return 0, false, nil
+	}
+
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM netscan_assets WHERE asset_id = ?`, weakID); err != nil {
+		return 0, false, err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO netscan_assets (asset_id, ip_address, mac_address, hostname, mac_vendor, os_family, device_type, asset_status, first_seen, last_seen)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		strongID,
+		row.IPAddress,
+		nullableString(row.MACAddress),
+		nullableString(row.Hostname),
+		nullableString(row.MACVendor),
+		row.OSFamily,
+		row.DeviceType,
+		row.AssetStatus,
+		weak.FirstSeen,
+		nowMs,
+	); err != nil {
+		return 0, false, err
+	}
+	return weak.FirstSeen, true, nil
+}
+
+type assetStoreRow struct {
+	AssetID     string
+	IPAddress   string
+	MACAddress  sql.NullString
+	Hostname    sql.NullString
+	MACVendor   sql.NullString
+	OSFamily    string
+	DeviceType  string
+	AssetStatus string
+	FirstSeen   int64
+	LastSeen    int64
+}
+
+func weakIdentityUpgradeAllowed(existing assetStoreRow, current AssetRow) bool {
+	if strings.TrimSpace(existing.IPAddress) == "" || strings.TrimSpace(current.IPAddress) == "" {
+		return false
+	}
+	if strings.TrimSpace(existing.IPAddress) != strings.TrimSpace(current.IPAddress) {
+		return false
+	}
+
+	if !sameOptionalString(existing.Hostname, current.Hostname) {
+		return false
+	}
+	if !sameNormalizedText(existing.OSFamily, current.OSFamily) {
+		return false
+	}
+	if !sameNormalizedText(existing.DeviceType, current.DeviceType) {
+		return false
+	}
+	return true
+}
+
+func sameOptionalString(existing sql.NullString, current *string) bool {
+	existingVal := ""
+	if existing.Valid {
+		existingVal = existing.String
+	}
+	currentVal := ""
+	if current != nil {
+		currentVal = *current
+	}
+	existingVal = strings.TrimSpace(strings.ToLower(existingVal))
+	currentVal = strings.TrimSpace(strings.ToLower(currentVal))
+	if existingVal == "" || currentVal == "" {
+		return true
+	}
+	return existingVal == currentVal
+}
+
+func sameNormalizedText(existing, current string) bool {
+	existing = strings.TrimSpace(strings.ToLower(existing))
+	current = strings.TrimSpace(strings.ToLower(current))
+	if existing == "" || current == "" {
+		return true
+	}
+	return existing == current
 }
 
 func nullableString(value *string) any {
