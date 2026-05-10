@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,9 @@ func assertGoldenJSON(t *testing.T, goldenPath string, value any) {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", goldenPath, err)
 	}
-	if string(expected) != string(data) {
+	expectedText := strings.ReplaceAll(string(expected), "\r\n", "\n")
+	actualText := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if expectedText != actualText {
 		t.Fatalf("golden mismatch: %s\nset UPDATE_GOLDEN=1 to refresh", goldenPath)
 	}
 }
